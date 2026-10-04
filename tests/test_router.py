@@ -383,6 +383,94 @@ def test_untouched_on_surfaces_the_router_does_not_own(tmp_path, overrides):
     assert transport.call_count == 0
 
 
+def test_provider_gate_skips_the_other_profile_in_both_directions(tmp_path):
+    """The provider gate compares against the SELECTED profile's names.
+
+    A router configured for OpenRouter must skip a turn whose provider is 'ollama-cloud' (and
+    the reverse): the middleware only owns the provider it was configured for. Both providers'
+    grid ids are otherwise valid, so only the gate can explain the skip.
+    """
+    # OpenRouter profile, an Ollama provider turn on an OpenRouter grid model.
+    openrouter_transport = StubTransport([])
+    openrouter_router, _ = build(
+        tmp_path, openrouter_transport, config={"provider": "openrouter"}
+    )
+    assert route(openrouter_router, openrouter_request(), provider="ollama-cloud") is None
+    assert openrouter_transport.call_count == 0
+
+    # Ollama:Cloud profile, an OpenRouter provider turn on an Ollama grid model.
+    ollama_transport = StubTransport([])
+    ollama_router, _ = build(tmp_path, ollama_transport, config={"provider": "ollama-cloud"})
+    assert (
+        route(
+            ollama_router,
+            openrouter_request(model="deepseek-v4.1-flash"),
+            model="deepseek-v4.1-flash",
+            provider="openrouter",
+        )
+        is None
+    )
+    assert ollama_transport.call_count == 0
+
+
+# -- the default (Ollama:Cloud) profile -----------------------------------------
+
+
+OLLAMA_REQUEST = {
+    "model": "deepseek-v4.1-flash",
+    "messages": [{"role": "user", "content": "hello"}],
+    "tools": [],
+    "max_tokens": 4096,
+    "timeout": 60,
+}
+
+
+def test_ollama_profile_routes_with_a_top_level_reasoning_effort(tmp_path):
+    """The default profile's wire shape is a top-level ``reasoning_effort`` and no ``extra_body``."""
+    transport = StubTransport([StubResponse(decision_payload("2", 0.9, "high", 0.8))])
+    router, settings = build(tmp_path, transport, config={"provider": "ollama-cloud"})
+
+    result = route(
+        router,
+        OLLAMA_REQUEST,
+        model="deepseek-v4.1-flash",
+        provider="ollama-cloud",
+    )
+
+    assert result is not None
+    assert settings.grid_ids == (
+        "deepseek-v4.1-flash",
+        "kimi-k3",
+        "glm-5.3",
+        "glm-5.3-flash",
+        "minimax-m3",
+        "nemotron-3-nano:30b",
+    )
+    assert result["request"]["model"] == "kimi-k3"
+    assert result["request"]["reasoning_effort"] == "high"
+    assert "extra_body" not in result["request"]
+    assert "reasoning" not in result["request"]
+
+
+def test_default_settings_select_the_ollama_profile(tmp_path):
+    """No ``provider`` configured => Ollama:Cloud, its six-model grid and its fallback model."""
+    from providers import DEFAULT_PROVIDER, OLLAMA_CLOUD
+
+    settings = load_settings(lambda _key, default=None: default)
+
+    assert settings.provider == DEFAULT_PROVIDER == "ollama-cloud"
+    assert settings.grid == OLLAMA_CLOUD.grid
+    assert settings.default_model == "deepseek-v4.1-flash"
+
+
+def test_invalid_provider_setting_resolves_to_the_default(tmp_path):
+    """A nonsense ``provider`` falls back to Ollama:Cloud, never to a different profile."""
+    settings = load_settings(lambda key, default=None: {"provider": "nonsense"}.get(key, default))
+
+    assert settings.provider == "ollama-cloud"
+    assert settings.profile.name == "ollama-cloud"
+
+
 def test_disabled_switch_is_inert(tmp_path):
     transport = StubTransport([])
     router, _ = build(tmp_path, transport, config={"enabled": False})
