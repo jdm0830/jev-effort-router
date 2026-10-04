@@ -37,7 +37,9 @@ class Entry:
         return f"{self.model_id}: {self.description}" if self.description else self.model_id
 
 
-#: The benchmarked OpenRouter grid, in the order it is offered to Jev.
+#: The benchmarked Ollama:Cloud grid — the default profile's six models — in the order it is
+#: offered to Jev. This is the module-level fallback `parse_grid` uses when a caller passes no
+#: grid, which matches the default profile (`providers.DEFAULT_PROVIDER`).
 #: The descriptions are data: they are sent to Jev verbatim as the criteria, in English.
 #:
 #: Every profile names a **task family**, never a superlative free of a task ("excellent value
@@ -47,15 +49,34 @@ class Entry:
 #: of naming task families instead is in the changelog.
 DEFAULT_GRID: Tuple[Entry, ...] = (
     Entry(
-        "openrouter/auto",
+        "deepseek-v4.1-flash",
         "the usual choice for general work: everyday writing, explanation, summarising, "
-        "ordinary coding and tool use; routed for you by OpenRouter; cheap for its size",
+        "ordinary coding and tool use; 1M context; cheap for its size",
     ),
     Entry(
-        "typesafe/jev-router",
-        "deep and hard work: rigorous reasoning, mathematics, logic, science, quantitative "
-        "and financial analysis, complex code and long agentic tasks where a wrong answer "
-        "is costly; slow and the most expensive",
+        "kimi-k3",
+        "strongest at complex code and long agentic tasks: multi-file refactors, deep "
+        "debugging, large repositories; slow and the most expensive",
+    ),
+    Entry(
+        "glm-5.3",
+        "strongest at rigorous reasoning: mathematics, logic, science, quantitative and "
+        "financial analysis, where a wrong answer is costly",
+    ),
+    Entry(
+        "glm-5.3-flash",
+        "best reasoning-per-cost on large text: drafting, summarising, translating and "
+        "structured extraction over long documents; fast",
+    ),
+    Entry(
+        "minimax-m3",
+        "fast tool calling: long sequences of API/CLI actions, repetitive automation, "
+        "high throughput",
+    ),
+    Entry(
+        "nemotron-3-nano:30b",
+        "highest throughput and lowest cost: trivial single-step requests only; weak at "
+        "reasoning and at long context",
     ),
 )
 

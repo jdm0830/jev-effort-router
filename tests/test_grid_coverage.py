@@ -52,7 +52,7 @@ def _route(model, *, replayed=False, degraded=False, probabilities=None, choice=
 
 
 def test_coverage_reports_what_is_applied_and_what_is_never_chosen(tmp_path):
-    from grid import DEFAULT_GRID
+    from providers import OPENROUTER
 
     ctx = _context(
         tmp_path,
@@ -78,13 +78,15 @@ def test_coverage_reports_what_is_applied_and_what_is_never_chosen(tmp_path):
     assert coverage["window"] == 4
     assert coverage["applied"] == {"openrouter/auto": 2, "typesafe/jev-router": 1}
     assert coverage["below_threshold"] == {"typesafe/jev-router": 1}
-    # Both of the fork's two grid entries are accounted for (applied or below threshold), so
-    # nothing is left un-chosen and the key is omitted entirely.
+    # Both of the router's grid entries (the OpenRouter profile it is configured for) are
+    # accounted for (applied or below threshold), so nothing is left un-chosen and the key is
+    # omitted entirely.
     assert coverage.get("never_chosen", []) == [
         entry.model_id
-        for entry in DEFAULT_GRID
+        for entry in OPENROUTER.grid
         if entry.model_id not in {"openrouter/auto", "typesafe/jev-router"}
     ]
+    assert coverage.get("never_chosen", []) == []
 
 
 def test_replayed_records_are_not_counted_as_decisions(tmp_path):

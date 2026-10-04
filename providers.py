@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Tuple
 
-from .grid import Entry
+from .grid import DEFAULT_GRID, Entry
 
 #: How a provider's chat-completions transport expects the chosen effort on the wire.
 #:
@@ -75,38 +75,8 @@ OLLAMA_CLOUD = ProviderProfile(
     api_key_env="OPENROUTER_API_KEY",
     fallback_model="deepseek-v4.1-flash",
     default_family="ollama-cloud",
-    grid=(
-        Entry(
-            "deepseek-v4.1-flash",
-            "the usual choice for general work: everyday writing, explanation, summarising, "
-            "ordinary coding and tool use; 1M context; cheap for its size",
-        ),
-        Entry(
-            "kimi-k3",
-            "strongest at complex code and long agentic tasks: multi-file refactors, deep "
-            "debugging, large repositories; slow and the most expensive",
-        ),
-        Entry(
-            "glm-5.3",
-            "strongest at rigorous reasoning: mathematics, logic, science, quantitative and "
-            "financial analysis, where a wrong answer is costly",
-        ),
-        Entry(
-            "glm-5.3-flash",
-            "best reasoning-per-cost on large text: drafting, summarising, translating and "
-            "structured extraction over long documents; fast",
-        ),
-        Entry(
-            "minimax-m3",
-            "fast tool calling: long sequences of API/CLI actions, repetitive automation, "
-            "high throughput",
-        ),
-        Entry(
-            "nemotron-3-nano:30b",
-            "highest throughput and lowest cost: trivial single-step requests only; weak at "
-            "reasoning and at long context",
-        ),
-    ),
+    #: The default profile's grid is the module-level benchmarked grid, from one source of truth.
+    grid=DEFAULT_GRID,
 )
 
 #: The OpenRouter profile — opt-in with ``provider: openrouter``. ``openrouter/auto`` is the

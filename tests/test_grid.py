@@ -14,6 +14,17 @@ OPENROUTER_GRID = OPENROUTER.grid
 def test_default_grid_is_the_ollama_six_model_grid():
     """`DEFAULT_GRID` is the module-level fallback `parse_grid` uses; the profile grids are
     authoritative, and the Ollama:Cloud profile ships the six benchmarked models."""
+    ids = [entry.model_id for entry in DEFAULT_GRID]
+    assert ids == [
+        "deepseek-v4.1-flash",
+        "kimi-k3",
+        "glm-5.3",
+        "glm-5.3-flash",
+        "minimax-m3",
+        "nemotron-3-nano:30b",
+    ]
+    # The default profile's grid and the module fallback are one grid, not two.     
+    assert DEFAULT_GRID == OLLAMA_GRID
 
 
 def test_openrouter_profile_grid_is_the_two_benchmarked_models():
