@@ -5,29 +5,24 @@ from __future__ import annotations
 from grid import DEFAULT_GRID, Entry, criteria, parse_entry, parse_grid, resolve
 
 
-def test_default_grid_is_the_six_benchmarked_models():
+def test_default_grid_is_the_two_benchmarked_models():
     ids = [entry.model_id for entry in DEFAULT_GRID]
     assert ids == [
-        "deepseek-v4.1-flash",
-        "kimi-k3",
-        "glm-5.3",
-        "glm-5.3-flash",
-        "minimax-m3",
-        # The wire id, tag included: the provider's catalog names this tier
-        # "nemotron-3-nano:30b" and rejects the bare name with HTTP 404.
-        "nemotron-3-nano:30b",
+        "openrouter/auto",
+        "typesafe/jev-router",
     ]
 
 
 def test_criteria_are_keyed_by_position_with_a_readable_profile():
     mapping = criteria(DEFAULT_GRID)
-    assert set(mapping) == {"1", "2", "3", "4", "5", "6"}
-    assert mapping["1"].startswith("deepseek-v4.1-flash: ")
+    assert set(mapping) == {"1", "2"}
+    assert mapping["1"].startswith("openrouter/auto: ")
     assert mapping["1"] == (
-        "deepseek-v4.1-flash: the usual choice for general work: everyday writing, "
-        "explanation, summarising, ordinary coding and tool use; 1M context; cheap for its size"
+        "openrouter/auto: the usual choice for general work: everyday writing, "
+        "explanation, summarising, ordinary coding and tool use; routed for you by OpenRouter; "
+        "cheap for its size"
     )
-    assert mapping["2"].startswith("kimi-k3: ")
+    assert mapping["2"].startswith("typesafe/jev-router: ")
 
 
 def test_no_profile_is_a_task_free_superlative():
@@ -46,13 +41,15 @@ def test_no_profile_is_a_task_free_superlative():
 
 
 def test_resolve_by_positional_key():
-    assert resolve({}, "3", DEFAULT_GRID).model_id == "glm-5.3"
+    assert resolve({}, "2", DEFAULT_GRID).model_id == "typesafe/jev-router"
 
 
 def test_resolve_tolerates_an_echoed_option_string():
-    # A decision endpoint that echoes "1: deepseek-v4.1-flash: ..." must not misroute.
-    assert resolve({}, "2: kimi-k3: top-tier code and agentic work", DEFAULT_GRID).model_id == "kimi-k3"
-    assert resolve({}, "kimi-k3", DEFAULT_GRID).model_id == "kimi-k3"
+    # A decision endpoint that echoes "2: typesafe/jev-router: ..." must not misroute.
+    assert resolve({}, "2: typesafe/jev-router: deep and hard work", DEFAULT_GRID).model_id == (
+        "typesafe/jev-router"
+    )
+    assert resolve({}, "typesafe/jev-router", DEFAULT_GRID).model_id == "typesafe/jev-router"
 
 
 def test_resolve_rejects_an_off_grid_choice():

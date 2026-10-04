@@ -148,8 +148,8 @@ def test_status_tool_reports_the_grid_and_the_audit(plugin, tmp_path, monkeypatc
 
     assert payload["enabled"] is True
     assert payload["api_key_present"] is True
-    assert len(payload["grid"]) == 6
-    assert payload["grid"][0]["model"] == "deepseek-v4.1-flash"
+    assert len(payload["grid"]) == 2
+    assert payload["grid"][0]["model"] == "openrouter/auto"
     assert payload["audit"]["records"] == 0
 
 
@@ -206,7 +206,7 @@ def test_status_tool_accepts_the_arguments_dict_the_host_passes(plugin, tmp_path
     payload = json.loads(_dispatch_like_the_host(ctx.tools["jev_effort_router_status"]["handler"], args))
 
     assert payload["enabled"] is True
-    assert len(payload["grid"]) == 6
+    assert len(payload["grid"]) == 2
 
 
 @pytest.mark.parametrize(
@@ -232,7 +232,7 @@ def test_route_tool_accepts_the_arguments_dict_the_host_passes(plugin, tmp_path,
     payload = json.loads(_dispatch_like_the_host(ctx.tools["jev_effort_router_route"]["handler"], args))
 
     assert payload["routed"] is True
-    assert payload["model"] == "kimi-k3"
+    assert payload["model"] == "typesafe/jev-router"
     assert payload["effort"] == "high"
     # The task reached Jev; the optional context did not break the call either way.
     assert transport.call_count == 1
@@ -289,10 +289,10 @@ def test_cli_status_shows_the_grid_coverage_block(tmp_path, monkeypatch, capsys)
         "\n".join(
             json.dumps(r)
             for r in [
-                {"event": "route", "model": "deepseek-v4.1-flash", "replayed": False,
+                {"event": "route", "model": "openrouter/auto", "replayed": False,
                  "fallback_reasons": [], "model_probabilities": {}},
-                {"event": "route", "model": "deepseek-v4.1-flash", "replayed": False,
-                 "fallback_reasons": ["low_confidence"], "model_probabilities": {"3": 0.44, "1": 0.30}},
+                {"event": "route", "model": "openrouter/auto", "replayed": False,
+                 "fallback_reasons": ["low_confidence"], "model_probabilities": {"2": 0.44, "1": 0.30}},
             ]
         )
         + "\n",
@@ -302,8 +302,10 @@ def test_cli_status_shows_the_grid_coverage_block(tmp_path, monkeypatch, capsys)
     text = _status_text(router, load_settings(lambda _key, default=None: default))
 
     assert "Grid coverage (last 2 routed turns):" in text
-    assert "deepseek-v4.1-flash x1" in text
-    assert "glm-5.3" in text.split("never chosen:")[1].split("\n")[0] + text.split("picked, below threshold:")[1]
+    assert "openrouter/auto x1" in text
+    # `typesafe/jev-router` is only ever the *preferred* criterion on the degraded turn, so it
+    # shows up under "picked, below threshold" (served by the fallback), not under "never chosen".
+    assert "typesafe/jev-router" in text.split("picked, below threshold:")[1]
 
 
 def test_cli_command_status_and_missing_task(plugin, tmp_path, monkeypatch, capsys):

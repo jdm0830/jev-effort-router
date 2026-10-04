@@ -35,6 +35,16 @@ OLLAMA_CLOUD = Family(
     overrides={"xhigh": "max"},
 )
 
+#: OpenRouter's unified route, and the fallback for any model id with no more specific family
+#: below. Its aggregator accepts the graded low/medium/high set; the router only ever asks for
+#: low/medium/high, and the clamp never escalates, so an unknown OpenRouter model is never sent a
+#: level its route would reject.
+OPENROUTER = Family(
+    name="openrouter",
+    accepted=("low", "medium", "high"),
+    overrides={"xhigh": "high", "max": "high", "minimal": "low"},
+)
+
 FAMILIES: Tuple[Family, ...] = (
     # DeepSeek V4 / V4.1 — graded, xhigh rounds up to max.
     Family("deepseek", ("low", "medium", "high", "max"), {"xhigh": "max"}),
@@ -64,12 +74,12 @@ def family_for(model_id: Optional[str]) -> Family:
     """Pick the family contract for a model id.
 
     Matching is a substring test on the bare slug, so ``kimi-k3``, ``kimi-k3-256k`` and a
-    ``vendor/kimi-k3`` prefix all land on the same row. Unknown models get the
-    Ollama:cloud vocabulary, which is the widest set this router's provider accepts.
+    ``vendor/kimi-k3`` prefix all land on the same row. Unknown models get the OpenRouter graded
+    vocabulary, which is the safe default for the provider this router is benchmarked against.
     """
     slug = (model_id or "").strip().lower().rsplit("/", 1)[-1]
     if not slug:
-        return OLLAMA_CLOUD
+        return OPENROUTER
     if "kimi" in slug and _token(slug, "k3"):
         return FAMILIES[1]
     if "deepseek" in slug:
@@ -88,7 +98,7 @@ def family_for(model_id: Optional[str]) -> Family:
         return FAMILIES[8]
     if "gpt" in slug or _token(slug, "o1") or _token(slug, "o3") or _token(slug, "o4"):
         return FAMILIES[9]
-    return OLLAMA_CLOUD
+    return OPENROUTER
 
 
 def _token(slug: str, needle: str) -> bool:

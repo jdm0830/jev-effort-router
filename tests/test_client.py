@@ -34,7 +34,7 @@ def test_payload_matches_the_documented_shape(monkeypatch):
     transport = StubTransport([StubResponse(decision_payload())])
     client, settings = make(transport)
 
-    client.decide(MESSAGES, DEFAULT_GRID, platform="cli", provider="ollama-cloud")
+    client.decide(MESSAGES, DEFAULT_GRID, platform="cli", provider="openrouter")
 
     payload = transport.last_payload
     assert payload["model"] == settings.jev_model == "typesafe/jev-1.13"
@@ -45,14 +45,14 @@ def test_payload_matches_the_documented_shape(monkeypatch):
     assert state["user_message"] == "refactore le module de paiement"
     assert "première question" in state["recent_context"]
     assert state["surface"] == "cli"
-    assert state["provider"] == "ollama-cloud"
+    assert state["provider"] == "openrouter"
     # The configured model is deliberately NOT sent: it anchors the decision on itself.
     assert "currently_configured_model" not in state
 
     questions = payload["questions"]
     assert questions["model_route"]["type"] == "choice"
-    assert set(questions["model_route"]["criteria"]) == {"1", "2", "3", "4", "5", "6"}
-    assert questions["model_route"]["criteria"]["1"].startswith("deepseek-v4.1-flash: ")
+    assert set(questions["model_route"]["criteria"]) == {"1", "2"}
+    assert questions["model_route"]["criteria"]["1"].startswith("openrouter/auto: ")
     assert questions["reasoning_effort"]["type"] == "choice"
     assert set(questions["reasoning_effort"]["criteria"]) == {"low", "medium", "high"}
 
@@ -67,7 +67,7 @@ def test_payload_is_stated_in_one_language(monkeypatch):
     transport = StubTransport([StubResponse(decision_payload())])
     client, _ = make(transport)
 
-    client.decide(MESSAGES, DEFAULT_GRID, platform="cli", provider="ollama-cloud")
+    client.decide(MESSAGES, DEFAULT_GRID, platform="cli", provider="openrouter")
 
     french = set("àâäçéèêëîïôöùûüœ")
     questions = transport.last_payload["questions"]
@@ -103,7 +103,7 @@ def test_decision_interpretation(monkeypatch):
     decision, reason = client.decide(MESSAGES, DEFAULT_GRID)
 
     assert reason is None
-    assert decision.model == "kimi-k3"
+    assert decision.model == "typesafe/jev-router"
     assert decision.effort == "high"
     assert decision.model_confidence == pytest.approx(0.91)
     assert decision.effort_confidence == pytest.approx(0.66)
@@ -112,7 +112,7 @@ def test_decision_interpretation(monkeypatch):
 
     # The grid position is offered to Jev; `choice` returns that key, and `probabilities`
     # is the full distribution over the criteria we sent (docs/jev-decisions-api.md).
-    assert set(decision.model_probabilities) == {"1", "2", "3", "4", "5", "6"}
+    assert set(decision.model_probabilities) == {"1", "2"}
     assert decision.model_probabilities["2"] == pytest.approx(0.91)
 
 
@@ -124,7 +124,9 @@ def test_kimi_effort_override_is_applied(monkeypatch):
     decision, _ = client.decide(MESSAGES, DEFAULT_GRID)
 
     assert decision.effort_requested == "medium"
-    assert decision.effort == "high"
+    # The routed grid model is unknown to the family table, so it lands on the OpenRouter
+    # vocabulary (accepted low/medium/high), which passes `medium` through verbatim.
+    assert decision.effort == "medium"
 
 
 def test_missing_api_key_short_circuits(monkeypatch):
@@ -186,7 +188,7 @@ def test_unknown_model_choice_degrades_to_the_fallback(monkeypatch):
     decision, reason = client.decide(MESSAGES, DEFAULT_GRID)
 
     assert reason is None
-    assert decision.model == "deepseek-v4.1-flash"
+    assert decision.model == "openrouter/auto"
     assert REASON_UNKNOWN_CHOICE in decision.fallback_reasons
 
 
@@ -196,7 +198,7 @@ def test_low_confidence_degrades(monkeypatch):
 
     decision, _ = client.decide(MESSAGES, DEFAULT_GRID)
 
-    assert decision.model == "deepseek-v4.1-flash"
+    assert decision.model == "openrouter/auto"
     assert decision.effort == "medium"
     assert decision.fallback_reasons.count(REASON_LOW_CONFIDENCE) == 2
 
@@ -207,11 +209,12 @@ def test_a_confident_model_with_an_unconfident_effort_only_degrades_the_effort(m
 
     decision, _ = client.decide(MESSAGES, DEFAULT_GRID)
 
-    assert decision.model == "kimi-k3"
-    # Degraded to the configured default ("medium"), then translated for the model family:
-    # Kimi K3's documented middle is `high`, so that is what goes on the wire.
+    assert decision.model == "typesafe/jev-router"
+    # Degraded to the configured default ("medium") and translated for the struck model's
+    # family: the routed OpenRouter ids are unknown to the family table, so the OpenRouter
+    # vocabulary applies and `medium` is accepted as-is.
     assert decision.effort_requested == "medium"
-    assert decision.effort == "high"
+    assert decision.effort == "medium"
     assert decision.fallback_reasons == (REASON_LOW_CONFIDENCE,)
 
 
@@ -227,7 +230,7 @@ def test_non_choice_answer_types_are_treated_as_malformed(monkeypatch):
 
     # `choice` is empty on a wrongly-typed answer, so the model is off-grid and the turn
     # falls back rather than reading a probability as a model name.
-    assert decision.model == "deepseek-v4.1-flash"
+    assert decision.model == "openrouter/auto"
     assert REASON_UNKNOWN_CHOICE in decision.fallback_reasons
 
 

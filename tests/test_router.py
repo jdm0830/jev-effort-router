@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from stubs import StubContext, StubResponse, StubState, StubTransport, decision_payload, ollama_request
+from stubs import StubContext, StubResponse, StubState, StubTransport, decision_payload, openrouter_request
 from config import load_settings
 from router import Router
 
@@ -46,15 +46,15 @@ def route(router, request=None, **overrides):
         turn_id="turn-1",
         session_id="session-1",
         platform="cli",
-        model="deepseek-v4.1-flash",
-        provider="ollama-cloud",
-        base_url="https://ollama.com/v1",
+        model="openrouter/auto",
+        provider="openrouter",
+        base_url="https://openrouter.ai/api/v1",
         api_mode="chat_completions",
         api_call_count=0,
         api_request_id="turn-1:api:0",
     )
     kwargs.update(overrides)
-    request = request if request is not None else ollama_request()
+    request = request if request is not None else openrouter_request()
     return router.on_llm_request(request, dict(request), **kwargs)
 
 
@@ -68,19 +68,18 @@ def test_routes_model_and_effort(tmp_path):
     result = route(router)
 
     assert result is not None
-    assert result["request"]["model"] == "kimi-k3"
-    assert result["request"]["reasoning_effort"] == "high"
-    # `reasoning_config` must NOT be in the payload: it is a params-level input the provider
-    # profile consumes to derive the top-level field, and Ollama rejects the whole call if it
-    # reaches the wire.
-    assert "reasoning_config" not in result["request"]
+    assert result["request"]["model"] == "typesafe/jev-router"
+    # OpenRouter: the effort lands under extra_body.reasoning.effort, never top-level.
+    assert result["request"]["extra_body"]["reasoning"]["effort"] == "high"
+    assert "reasoning_effort" not in result["request"]
+    assert "reasoning" not in result["request"]
     assert result["source"] == "jev-effort-router"
 
 
 def test_request_is_built_from_the_pre_middleware_payload(tmp_path):
     transport = StubTransport([StubResponse(decision_payload("1", 0.9))])
     router, _ = build(tmp_path, transport)
-    original = ollama_request(model="glm-5.3")
+    original = openrouter_request(model="typesafe/jev-router")
     modified = dict(original, injected_by_an_earlier_middleware=True)
 
     result = router.on_llm_request(
@@ -88,13 +87,13 @@ def test_request_is_built_from_the_pre_middleware_payload(tmp_path):
         original,
         turn_id="t",
         session_id="s",
-        model="glm-5.3",
-        provider="ollama-cloud",
+        model="typesafe/jev-router",
+        provider="openrouter",
         api_mode="chat_completions",
         api_call_count=0,
     )
 
-    assert result["request"]["model"] == "deepseek-v4.1-flash"
+    assert result["request"]["model"] == "openrouter/auto"
     assert result["request"].get("injected_by_an_earlier_middleware") is None
     assert result["request"]["messages"] == original["messages"]
 
@@ -104,13 +103,17 @@ def test_effort_is_omitted_when_the_decision_carries_none(tmp_path):
         [StubResponse(decision_payload("1", 0.9, "medium", 0.9, include_effort=False))]
     )
     router, _ = build(tmp_path, transport)
-    request = ollama_request(reasoning_config={"enabled": True, "effort": "low"})
+    request = openrouter_request(
+        extra_body={"reasoning": {"enabled": True, "effort": "low"}}
+    )
 
     result = route(router, request, )
 
-    assert result["request"]["model"] == "deepseek-v4.1-flash"
-    # The model changed, so a stale effort from the old model must not survive.
-    assert "reasoning_effort" not in result["request"]
+    assert result["request"]["model"] == "openrouter/auto"
+    # The model changed, so a stale effort from the old model must not survive. The nested
+    # ``enabled`` flag is preserved but the stale ``effort`` is stripped.
+    assert "effort" not in result["request"]["extra_body"]["reasoning"]
+    assert result["request"]["extra_body"]["reasoning"]["enabled"] is True
 
 
 # -- one decision per turn ---------------------------------------------------------
@@ -128,9 +131,9 @@ def test_follow_up_requests_replay_the_turns_first_decision(tmp_path):
     first = route(router, api_call_count=0, api_request_id="turn-1:api:0")
     second = route(router, api_call_count=1, api_request_id="turn-1:api:1")
 
-    assert first["request"]["model"] == "kimi-k3"
-    assert second["request"]["model"] == "kimi-k3"
-    assert second["request"]["reasoning_effort"] == "high"
+    assert first["request"]["model"] == "typesafe/jev-router"
+    assert second["request"]["model"] == "typesafe/jev-router"
+    assert second["request"]["extra_body"]["reasoning"]["effort"] == "high"
     assert transport.call_count == 1
 
 
@@ -152,8 +155,11 @@ def test_replay_works_with_the_call_counter_hermes_really_sends(tmp_path):
     second = route(router, api_call_count=2, api_request_id="turn-1:api:2")
     third = route(router, api_call_count=3, api_request_id="turn-1:api:3")
 
-    assert first["request"]["model"] == "kimi-k3"
-    assert [second["request"]["model"], third["request"]["model"]] == ["kimi-k3", "kimi-k3"]
+    assert first["request"]["model"] == "typesafe/jev-router"
+    assert [second["request"]["model"], third["request"]["model"]] == [
+        "typesafe/jev-router",
+        "typesafe/jev-router",
+    ]
     assert transport.call_count == 1
 
 
@@ -169,8 +175,8 @@ def test_a_new_turn_routes_again(tmp_path):
     first = route(router, turn_id="turn-1")
     second = route(router, turn_id="turn-2", api_request_id="turn-2:api:0")
 
-    assert first["request"]["model"] == "kimi-k3"
-    assert second["request"]["model"] == "minimax-m3"
+    assert first["request"]["model"] == "typesafe/jev-router"
+    assert second["request"]["model"] == "openrouter/auto"
     assert transport.call_count == 2
 
 
@@ -186,8 +192,8 @@ def test_route_per_session_decides_once(tmp_path):
     first = route(router, turn_id="turn-1")
     second = route(router, turn_id="turn-2", api_request_id="turn-2:api:0")
 
-    assert first["request"]["model"] == "kimi-k3"
-    assert second["request"]["model"] == "kimi-k3"
+    assert first["request"]["model"] == "typesafe/jev-router"
+    assert second["request"]["model"] == "typesafe/jev-router"
     assert transport.call_count == 1
 
 
@@ -202,7 +208,7 @@ def test_replayed_route_reemits_both_measured_confidences(tmp_path):
     model confidence Jev never gave — and destroyed which side was the weak one.
     """
     transport = StubTransport(
-        [StubResponse(decision_payload("1", 0.34, "medium", 0.65, model_probabilities={"1": 0.46, "5": 0.23}))]
+        [StubResponse(decision_payload("1", 0.34, "medium", 0.65, model_probabilities={"1": 0.46, "2": 0.23}))]
     )
     router, _ = build(tmp_path, transport)
 
@@ -274,7 +280,7 @@ def test_decision_from_memo_preserves_the_failing_dimension(tmp_path):
 def test_timeout_leaves_the_request_untouched(tmp_path):
     transport = StubTransport(handler=lambda *args: _raise_read_timeout())
     router, _ = build(tmp_path, transport)
-    request = ollama_request()
+    request = openrouter_request()
 
     assert route(router, request, ) is None
 
@@ -284,7 +290,7 @@ def test_http_error_leaves_the_request_untouched(tmp_path):
     transport = StubTransport([StubResponse(status_code=402, text='{"error":"insufficient credits"}')])
     router, _ = build(tmp_path, transport)
 
-    assert route(router, ollama_request()) is None
+    assert route(router, openrouter_request()) is None
 
 
 def test_malformed_body_leaves_the_request_untouched(tmp_path):
@@ -292,19 +298,19 @@ def test_malformed_body_leaves_the_request_untouched(tmp_path):
     transport = StubTransport([StubResponse(payload=None, status_code=200, text="not json")])
     router, _ = build(tmp_path, transport)
 
-    assert route(router, ollama_request()) is None
+    assert route(router, openrouter_request()) is None
 
 
 def test_low_confidence_falls_back_to_the_configured_defaults(tmp_path):
 
     transport = StubTransport([StubResponse(decision_payload("2", 0.10, "high", 0.12))])
-    router, _ = build(tmp_path, transport, config={"default_model": "deepseek-v4.1-flash", "default_effort": "low"})
+    router, _ = build(tmp_path, transport, config={"default_model": "openrouter/auto", "default_effort": "low"})
 
-    result = route(router, ollama_request())
+    result = route(router, openrouter_request())
 
     # The turn still goes out routed — on the fallback, and flagged as degraded.
-    assert result["request"]["model"] == "deepseek-v4.1-flash"
-    assert result["request"]["reasoning_effort"] == "low"
+    assert result["request"]["model"] == "openrouter/auto"
+    assert result["request"]["extra_body"]["reasoning"]["effort"] == "low"
     record = json.loads((tmp_path / "routes.jsonl").read_text(encoding="utf-8").strip().splitlines()[-1])
     # The model and the effort degrade independently, so a weak answer on both is recorded
     # twice — the audit trail has to show how many of the two decisions were distrusted.
@@ -316,9 +322,9 @@ def test_unknown_choice_falls_back(tmp_path):
     transport = StubTransport([StubResponse(decision_payload("99", 0.99, "medium", 0.99))])
     router, _ = build(tmp_path, transport)
 
-    result = route(router, ollama_request())
+    result = route(router, openrouter_request())
 
-    assert result["request"]["model"] == "deepseek-v4.1-flash"
+    assert result["request"]["model"] == "openrouter/auto"
     record = json.loads((tmp_path / "routes.jsonl").read_text(encoding="utf-8").strip().splitlines()[-1])
     assert "unknown_choice" in record["fallback_reasons"]
 
@@ -328,7 +334,7 @@ def test_missing_api_key_is_inert(tmp_path, monkeypatch):
     transport = StubTransport([])
     router, _ = build(tmp_path, transport)
 
-    assert route(router, ollama_request()) is None
+    assert route(router, openrouter_request()) is None
     assert transport.call_count == 0
 
 
@@ -348,7 +354,7 @@ def test_a_raising_client_never_breaks_the_turn(tmp_path):
         catalog=_NoCatalog(),
     )
 
-    assert route(router, ollama_request()) is None
+    assert route(router, openrouter_request()) is None
 
 
 # -- skip gates --------------------------------------------------------------------
@@ -357,7 +363,7 @@ def test_a_raising_client_never_breaks_the_turn(tmp_path):
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"provider": "openrouter"},
+        {"provider": "ollama-cloud"},
         {"provider": "anthropic"},
         {"api_mode": "anthropic_messages"},
         {"model": "gpt-9-ultra"},
@@ -367,7 +373,7 @@ def test_untouched_on_surfaces_the_router_does_not_own(tmp_path, overrides):
     transport = StubTransport([])
     router, _ = build(tmp_path, transport)
 
-    assert route(router, ollama_request(), **overrides) is None
+    assert route(router, openrouter_request(), **overrides) is None
     assert transport.call_count == 0
 
 
@@ -375,14 +381,14 @@ def test_disabled_switch_is_inert(tmp_path):
     transport = StubTransport([])
     router, _ = build(tmp_path, transport, config={"enabled": False})
 
-    assert route(router, ollama_request()) is None
+    assert route(router, openrouter_request()) is None
     assert transport.call_count == 0
 
 
 def test_a_turn_without_a_user_message_is_skipped(tmp_path):
     transport = StubTransport([])
     router, _ = build(tmp_path, transport)
-    request = ollama_request(messages=[{"role": "system", "content": "only a system message"}])
+    request = openrouter_request(messages=[{"role": "system", "content": "only a system message"}])
 
     assert route(router, request, ) is None
     assert transport.call_count == 0

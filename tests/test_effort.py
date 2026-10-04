@@ -9,15 +9,18 @@ def test_family_detection():
     assert family_for("kimi-k3").name == "kimi-k3"
     assert family_for("kimi-k3-256k").name == "kimi-k3"
     assert family_for("vendor/kimi-k3").name == "kimi-k3"
-    assert family_for("kimi-k2.6").name == "ollama-cloud"
+    assert family_for("kimi-k2.6").name == "openrouter"
     assert family_for("deepseek-v4.1-flash").name == "deepseek"
     assert family_for("glm-5.3").name == "glm-53"
     assert family_for("glm-5.3-flash").name == "glm-53"
     assert family_for("glm-5.2").name == "glm-52"
     assert family_for("minimax-m3").name == "minimax"
     assert family_for("nemotron-3-nano:30b").name == "nemotron"
-    assert family_for("mystery-model").name == "ollama-cloud"
-    assert family_for("").name == "ollama-cloud"
+    assert family_for("mystery-model").name == "openrouter"
+    assert family_for("").name == "openrouter"
+    # The fork's own grid ids land on the OpenRouter fallback family.
+    assert family_for("openrouter/auto").name == "openrouter"
+    assert family_for("typesafe/jev-router").name == "openrouter"
 
 
 def test_deepseek_passes_the_three_levels_through():

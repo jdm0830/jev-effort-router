@@ -13,6 +13,9 @@ from catalog import ModelCatalog
 
 ROOT = Path(__file__).resolve().parents[1]
 
+#: The fork's real cache filename and flat ``id -> metadata`` shape (see ``catalog._model_ids``).
+CACHE_FILENAME = "cache/openrouter_model_metadata.json"
+
 
 def _load_plugin():
     name = "jev_effort_router_catalog_status_test"
@@ -37,20 +40,20 @@ def _context(tmp_path, cache_path):
 
 
 def _write(tmp_path, models):
-    path = tmp_path / "ollama_cloud_models_cache.json"
-    path.write_text(json.dumps({"models": list(models)}), encoding="utf-8")
+    path = tmp_path / CACHE_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({model: {"name": model} for model in models}), encoding="utf-8")
     return path
 
 
 def test_status_flags_grid_entries_the_provider_lacks(tmp_path):
-    cache = _write(tmp_path, ["deepseek-v4.1-flash", "kimi-k3"])
+    cache = _write(tmp_path, ["openrouter/auto"])
     ctx = _context(tmp_path, cache)
 
     payload = json.loads(ctx.tools["jev_effort_router_status"]["handler"]({"recent": 1}))
 
-    assert "kimi-k3" not in payload.get("grid_unavailable", [])
-    assert "glm-5.3" in payload["grid_unavailable"]
-    assert "nemotron-3-nano:30b" in payload["grid_unavailable"]
+    assert "openrouter/auto" not in payload.get("grid_unavailable", [])
+    assert "typesafe/jev-router" in payload["grid_unavailable"]
 
 
 def test_status_is_silent_when_the_grid_is_healthy(tmp_path):

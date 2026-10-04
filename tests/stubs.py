@@ -80,7 +80,7 @@ def decision_payload(
     include_effort: bool = True,
     model_type: str = "choice",
     effort_type: str = "choice",
-    grid_size: int = 6,
+    grid_size: int = 2,
 ) -> Dict[str, Any]:
     """A well-formed Decisions API body, as documented in ``docs/jev-decisions-api.md``.
 
@@ -107,13 +107,18 @@ def decision_payload(
     return {"answers": answers}
 
 
-def ollama_request(
+def openrouter_request(
     *,
-    model: str = "deepseek-v4.1-flash",
+    model: str = "openrouter/auto",
     messages: Optional[List[Dict[str, Any]]] = None,
-    reasoning_config: Optional[Dict[str, Any]] = None,
+    extra_body: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """A provider kwargs payload as the ``llm_request`` middleware would receive it."""
+    """A provider kwargs payload as the ``llm_request`` middleware would receive it.
+
+    The fork routes via OpenRouter, whose ``chat_completions`` transport nests the reasoning
+    config inside ``extra_body`` (``extra_body.reasoning``). A request may therefore already
+    carry an ``extra_body`` mapping before the router rewrites it.
+    """
     request: Dict[str, Any] = {
         "model": model,
         "messages": messages if messages is not None else [{"role": "user", "content": "hello"}],
@@ -121,8 +126,8 @@ def ollama_request(
         "max_tokens": 4096,
         "timeout": 60,
     }
-    if reasoning_config is not None:
-        request["reasoning_config"] = reasoning_config
+    if extra_body is not None:
+        request["extra_body"] = extra_body
     return request
 
 

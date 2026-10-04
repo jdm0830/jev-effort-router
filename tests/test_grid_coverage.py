@@ -57,15 +57,16 @@ def test_coverage_reports_what_is_applied_and_what_is_never_chosen(tmp_path):
     ctx = _context(
         tmp_path,
         [
-            _route("deepseek-v4.1-flash"),
-            _route("deepseek-v4.1-flash"),
-            _route("kimi-k3"),
-            # A degraded turn is applied as the fallback, so `glm-5.3` must appear under
-            # below_threshold, not under applied and not under never_chosen.
+            _route("openrouter/auto"),
+            _route("openrouter/auto"),
+            _route("typesafe/jev-router"),
+            # A degraded turn is applied as the fallback, so the criterion the operator
+            # actually preferred must appear under below_threshold, not under applied and
+            # not under never_chosen.
             _route(
-                "deepseek-v4.1-flash",
+                "openrouter/auto",
                 degraded=True,
-                probabilities={"1": 0.30, "3": 0.44},
+                probabilities={"1": 0.30, "2": 0.44},
                 choice="1",
             ),
         ],
@@ -75,12 +76,14 @@ def test_coverage_reports_what_is_applied_and_what_is_never_chosen(tmp_path):
 
     coverage = payload["grid_coverage"]
     assert coverage["window"] == 4
-    assert coverage["applied"] == {"deepseek-v4.1-flash": 2, "kimi-k3": 1}
-    assert coverage["below_threshold"] == {"glm-5.3": 1}
-    assert coverage["never_chosen"] == [
+    assert coverage["applied"] == {"openrouter/auto": 2, "typesafe/jev-router": 1}
+    assert coverage["below_threshold"] == {"typesafe/jev-router": 1}
+    # Both of the fork's two grid entries are accounted for (applied or below threshold), so
+    # nothing is left un-chosen and the key is omitted entirely.
+    assert coverage.get("never_chosen", []) == [
         entry.model_id
         for entry in DEFAULT_GRID
-        if entry.model_id not in {"deepseek-v4.1-flash", "kimi-k3", "glm-5.3"}
+        if entry.model_id not in {"openrouter/auto", "typesafe/jev-router"}
     ]
 
 
@@ -89,15 +92,15 @@ def test_replayed_records_are_not_counted_as_decisions(tmp_path):
     ctx = _context(
         tmp_path,
         [
-            _route("kimi-k3"),
-            *[_route("kimi-k3", replayed=True) for _ in range(30)],
+            _route("typesafe/jev-router"),
+            *[_route("typesafe/jev-router", replayed=True) for _ in range(30)],
         ],
     )
 
     coverage = json.loads(ctx.tools["jev_effort_router_status"]["handler"]({}))["grid_coverage"]
 
     assert coverage["window"] == 1
-    assert coverage["applied"] == {"kimi-k3": 1}
+    assert coverage["applied"] == {"typesafe/jev-router": 1}
 
 
 def test_coverage_is_omitted_until_a_turn_has_been_routed(tmp_path):

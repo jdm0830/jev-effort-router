@@ -1,7 +1,7 @@
 """The provider catalog: never put a model on the wire that the provider does not have.
 
 A routing grid is static and a provider catalog is not. ``nemotron-3-nano`` aged out of the
-Ollama:cloud catalog (the tier is ``nemotron-3-nano:30b``), and the stale grid entry turned a
+provider catalog (the tier is ``nemotron-3-nano:30b``), and the stale grid entry turned a
 confident decision into ``HTTP 404: model "nemotron-3-nano" not found`` — a dead turn, the one
 outcome a router must never cause.
 """
@@ -13,15 +13,20 @@ import json
 import pytest
 
 from catalog import ModelCatalog
-from stubs import StubResponse, StubTransport, decision_payload, ollama_request
+from stubs import StubResponse, StubTransport, decision_payload, openrouter_request
 from router import Router
 from config import load_settings
 
+#: The fork's real cache filename and flat ``id -> metadata`` shape (see ``catalog._model_ids``).
+CACHE_FILENAME = "cache/openrouter_model_metadata.json"
 
-def write_catalog(tmp_path, models, *, filename="ollama_cloud_models_cache.json"):
-    payload = {"models": list(models), "cached_at": 0}
-    (tmp_path / filename).write_text(json.dumps(payload), encoding="utf-8")
-    return tmp_path / filename
+
+def write_catalog(tmp_path, models, *, filename=CACHE_FILENAME):
+    payload = {model: {"name": model} for model in models}
+    path = tmp_path / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
 
 
 def catalog_for(tmp_path, models):
@@ -54,14 +59,14 @@ def route(router, **overrides):
         turn_id="turn-1",
         session_id="session-1",
         platform="cli",
-        model="deepseek-v4.1-flash",
-        provider="ollama-cloud",
+        model="openrouter/auto",
+        provider="openrouter",
         api_mode="chat_completions",
         api_call_count=1,
         api_request_id="turn-1:api:1",
     )
     kwargs.update(overrides)
-    request = ollama_request()
+    request = openrouter_request()
     return router.on_llm_request(request, dict(request), **kwargs)
 
 
@@ -69,9 +74,10 @@ def route(router, **overrides):
 
 
 def test_reads_the_host_cache_shape(tmp_path):
-    catalog = catalog_for(tmp_path, ["deepseek-v4.1-flash", "nemotron-3-nano:30b"])
+    catalog = catalog_for(tmp_path, ["openrouter/auto", "typesafe/jev-router"])
 
-    assert catalog.is_known("deepseek-v4.1-flash") is True
+    assert catalog.is_known("openrouter/auto") is True
+    assert catalog.is_known("typesafe/jev-router") is True
     assert catalog.is_known("nemotron-3-nano") is False
 
 
@@ -113,17 +119,17 @@ def test_no_evidence_is_not_a_verdict(tmp_path, absent_or_broken):
 
 
 def test_a_model_the_provider_lacks_leaves_the_turn_untouched(tmp_path):
-    transport = StubTransport([StubResponse(decision_payload("6", 0.99, "high", 0.9))])
-    router, _ = build(tmp_path, transport, catalog_for(tmp_path, ["deepseek-v4.1-flash"]))
+    transport = StubTransport([StubResponse(decision_payload("2", 0.99, "high", 0.9))])
+    router, _ = build(tmp_path, transport, catalog_for(tmp_path, ["openrouter/auto"]))
 
-    assert route(router, model="deepseek-v4.1-flash") is None
+    assert route(router, model="openrouter/auto") is None
 
 
 def test_the_rejected_choice_is_recorded_with_its_reason(tmp_path, monkeypatch):
-    transport = StubTransport([StubResponse(decision_payload("6", 0.99, "high", 0.9))])
+    transport = StubTransport([StubResponse(decision_payload("2", 0.99, "high", 0.9))])
     audit_dir = tmp_path / "audit"
     audit_dir.mkdir()
-    catalog = ModelCatalog(write_catalog(tmp_path, ["deepseek-v4.1-flash"]))
+    catalog = ModelCatalog(write_catalog(tmp_path, ["openrouter/auto"]))
     settings = load_settings(lambda _key, default=None: default)
     router = Router(
         lambda: settings,
@@ -137,16 +143,16 @@ def test_the_rejected_choice_is_recorded_with_its_reason(tmp_path, monkeypatch):
     record = json.loads((audit_dir / "routes.jsonl").read_text(encoding="utf-8").strip())
     assert record["event"] == "skip"
     assert record["reason"] == "model_not_in_provider_catalog"
-    assert record["chosen_model"] == "nemotron-3-nano:30b"
+    assert record["chosen_model"] == "typesafe/jev-router"
 
 
 def test_a_model_the_provider_has_is_routed(tmp_path):
     transport = StubTransport([StubResponse(decision_payload("2", 0.9, "high", 0.9))])
-    router, _ = build(tmp_path, transport, catalog_for(tmp_path, ["deepseek-v4.1-flash", "kimi-k3"]))
+    router, _ = build(tmp_path, transport, catalog_for(tmp_path, ["openrouter/auto", "typesafe/jev-router"]))
 
     result = route(router)
 
-    assert result["request"]["model"] == "kimi-k3"
+    assert result["request"]["model"] == "typesafe/jev-router"
 
 
 def test_an_unreadable_catalog_does_not_stop_routing(tmp_path):
@@ -155,20 +161,20 @@ def test_an_unreadable_catalog_does_not_stop_routing(tmp_path):
 
     result = route(router)
 
-    assert result["request"]["model"] == "kimi-k3"
+    assert result["request"]["model"] == "typesafe/jev-router"
 
 
 def test_replay_does_not_re_check_the_catalog(tmp_path):
     """The decision was already vetted when it was made; a replay must not call the catalog."""
     transport = StubTransport([StubResponse(decision_payload("2", 0.9, "high", 0.9))])
-    router, _ = build(tmp_path, transport, catalog_for(tmp_path, ["deepseek-v4.1-flash", "kimi-k3"]))
+    router, _ = build(tmp_path, transport, catalog_for(tmp_path, ["openrouter/auto", "typesafe/jev-router"]))
 
     first = route(router, api_call_count=1)
-    router._catalog._models = ("deepseek-v4.1-flash",)  # catalog moves under us mid-turn
+    router._catalog._models = ("openrouter/auto",)  # catalog moves under us mid-turn
     second = route(router, api_call_count=2, api_request_id="turn-1:api:2")
 
-    assert first["request"]["model"] == "kimi-k3"
-    assert second["request"]["model"] == "kimi-k3"
+    assert first["request"]["model"] == "typesafe/jev-router"
+    assert second["request"]["model"] == "typesafe/jev-router"
 
 
 def test_grid_report_flags_the_entries_the_provider_lacks(tmp_path):
@@ -176,12 +182,12 @@ def test_grid_report_flags_the_entries_the_provider_lacks(tmp_path):
     router = Router(
         lambda: settings,
         get_state=lambda: None,
-        catalog=catalog_for(tmp_path, ["deepseek-v4.1-flash", "kimi-k3"]),
+        catalog=catalog_for(tmp_path, ["openrouter/auto", "typesafe/jev-router"]),
     )
 
     report = router.grid_report(settings)
 
-    assert [row["model"] for row in report if row["available"]] == ["deepseek-v4.1-flash", "kimi-k3"]
+    assert [row["model"] for row in report if row["available"]] == ["openrouter/auto", "typesafe/jev-router"]
 
 
 def test_grid_report_is_empty_without_evidence(tmp_path):
