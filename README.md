@@ -14,15 +14,16 @@ Every other routing entry in the catalog picks a **model** and stops there. The 
 reasoning effort make you move it **by hand** from the status bar. Nothing else decides both
 automatically, per turn.
 
-**Scope: this plugin is for Hermes running on OpenRouter.** Its whole routing grid is two OpenRouter
-models, the effort translation lands on OpenRouter's reasoning vocabulary, and the middleware routes
-**only** the `openrouter` provider — every other provider passes through untouched, so installing it on
-another provider changes nothing. You need Hermes on `provider: openrouter`, with that provider's catalog
-reachable, for this plugin to have any effect.
+**Scope: the plugin routes one provider at a time, chosen by the `provider` setting.** It ships two
+provider profiles — **Ollama:Cloud** (the default, with the original six-model grid) and **OpenRouter**
+(two models: `openrouter/auto` and `typesafe/jev-router`) — and the middleware routes **only** the
+selected profile's provider. Every other provider passes through untouched, so an unconfigured install
+changes nothing. Set `provider` to the profile matching your Hermes `model.provider`, with that provider's
+catalog reachable, for the plugin to have any effect.
 
 Hermes normally runs one model at one reasoning-effort for a whole session. `jev-effort-router` asks Jev —
-on every user turn, in ~270 ms and at $0.042/M input tokens — which of two benchmarked OpenRouter models
-and which effort level fit the task, then rewrites the outgoing provider request accordingly.
+on every user turn, in ~270 ms and at $0.042/M input tokens — which of the selected profile's benchmarked
+models and which effort level fit the task, then rewrites the outgoing provider request accordingly.
 
 Jev writes nothing. The selected model still does all the reasoning and all the generation; Jev only steers.
 
@@ -48,7 +49,7 @@ The installer **git-clones** the source, so the directory must be a git reposito
 (and commit) first if it is not one already:
 
 ```bash
-git init && git add -A && git commit -m "local OpenRouter fork"
+git init && git add -A && git commit -m "local jev-effort-router fork"
 hermes plugins install file:///abs/path/to/hermes-jev-openrouter
 hermes plugins enable jev-effort-router
 ```
@@ -93,10 +94,12 @@ credential is needed:
 OPENROUTER_API_KEY=sk-or-...
 ```
 
-Restart the session. That is the whole setup: the two-model grid ships as the default.
+Restart the session. That is the whole setup: the profile's grid ships as its default. Set `provider` in the
+plugin settings to match your Hermes `model.provider` (`ollama-cloud` or `openrouter`).
 
-Requirements: **Hermes Agent on OpenRouter** (`provider: openrouter` — no other provider is routed),
-with the `llm_request` middleware kind (0.21.4 or newer), Python 3.11+, and prepaid OpenRouter credits.
+Requirements: **Hermes Agent on a supported provider** (set `provider` to `ollama-cloud` or `openrouter` —
+no other provider is routed), with the `llm_request` middleware kind (0.21.4 or newer), Python 3.11+, and
+prepaid OpenRouter credits (the Decisions API is served through OpenRouter for both profiles).
 
 ## Verify it is working
 
@@ -167,7 +170,7 @@ confidence below the threshold, an unknown provider, or a model outside the grid
 
 Notably, it touches only what it owns:
 
-- **Provider** — only `openrouter` is routed; any other provider passes through untouched.
+- **Provider** — only the provider selected by the `provider` setting is routed; any other provider passes through untouched.
 - **API mode** — only `chat_completions`; a Responses or Anthropic-Messages route is left alone.
 - **Model** — a model outside the configured grid is not routed.
 - **Auxiliary calls** — titling, compression, MoA and vision calls are not routed, only the main turn.
@@ -181,8 +184,10 @@ different models without anyone reconfiguring anything.
 
 ## The routing grid
 
-Two OpenRouter models, in this order. The list is deliberately short: every extra option measurably
-dilutes a Choice decision.
+Each provider profile carries its own grid; the list is deliberately short, because every extra option
+measurably dilutes a Choice decision.
+
+**OpenRouter** (`provider: openrouter`) — two models, in this order:
 
 The **Profile** column is the criterion string sent to Jev, verbatim, in English. It lives in
 [`grid.py`](grid.py) as an English one-liner and is part of the measured payload rather than a display
@@ -203,7 +208,7 @@ Adding a model is a reviewed change to [`docs/routing-grid.md`](docs/routing-gri
 evidence behind it — not a config-only act. See that file for the profile rules and the measurement
 discipline.
 
-Model ids are checked against OpenRouter's own catalog before they go on the wire: `status` reports any
+Model ids are checked against the provider's own catalog before they go on the wire: `status` reports any
 grid entry the provider no longer serves under `grid_unavailable`, and a decision naming one is refused
 rather than sent. The catalog is read from the host's cache at
 `<HERMES_HOME>/cache/openrouter_model_metadata.json` — a flat `model_id -> {name, context_length,

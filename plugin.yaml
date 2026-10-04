@@ -2,11 +2,11 @@ name: jev-effort-router
 version: 0.2.2
 manifest_version: 2
 api_version: 1
-description: Route each user turn to the best OpenRouter model and reasoning effort via TypeSafe Jev's decision endpoint. OpenRouter only — no other provider is routed.
+description: Route each user turn to the best provider model and reasoning effort via TypeSafe Jev's decision endpoint. Configurable provider (Ollama:Cloud or OpenRouter); only the configured provider is routed.
 author: AlphaPerseii3000
 license: MIT
 homepage: https://github.com/AlphaPerseii3000/jev-effort-router
-tags: [routing, models, reasoning, openrouter, decisions]
+tags: [routing, models, reasoning, ollama-cloud, openrouter, decisions]
 # ``provides_middleware`` is not in the host's ``_KNOWN_MANIFEST_FIELDS``, so declaring it emits an
 # "unknown manifest field(s) ignored" warning on every load. It is declared anyway, deliberately:
 # ``hermes plugins validate`` diffs the manifest against what ``register(ctx)`` actually wires and
@@ -26,10 +26,16 @@ provides_tools:
   - jev_effort_router_route
 requires_env:
   - name: OPENROUTER_API_KEY
-    description: OpenRouter API key - Jev is reached through OpenRouter's Decisions API.
+    description: API key for the decision endpoint - Jev is reached through OpenRouter's Decisions API (used for both Ollama:Cloud and OpenRouter profiles).
     url: https://openrouter.ai/settings/keys
     secret: true
 config_schema:
+  provider:
+    type: str
+    default: ollama-cloud
+    choices: [ollama-cloud, openrouter]
+    label: Provider
+    description: Which provider profile to route. Only this provider is rewritten; every other provider passes through untouched.
   enabled:
     type: bool
     default: true
@@ -52,9 +58,9 @@ config_schema:
     description: Budget for the decision call. Any timeout leaves the request untouched.
   default_model:
     type: str
-    default: openrouter/auto
+    default: null
     label: Fallback model
-    description: Model used when the decision is below the confidence threshold.
+    description: Model used when the decision is below the confidence threshold. Defaults to the selected provider's fallback.
   default_effort:
     type: str
     default: medium
@@ -89,4 +95,4 @@ config_schema:
     type: list
     default: null
     label: Routing grid override
-    description: 'Optional list of entries, each "model-id: description", replacing the built-in two-model grid.'
+    description: 'Optional list of entries, each "model-id: description", replacing the selected provider built-in grid.'

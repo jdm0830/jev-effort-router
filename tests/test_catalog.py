@@ -36,7 +36,7 @@ def catalog_for(tmp_path, models):
 
 
 def build(tmp_path, transport, catalog):
-    settings = load_settings(lambda _key, default=None: default)
+    settings = load_settings(lambda key, default=None: {"provider": "openrouter"}.get(key, default))
     return (
         Router(
             lambda: settings,
@@ -130,7 +130,7 @@ def test_the_rejected_choice_is_recorded_with_its_reason(tmp_path, monkeypatch):
     audit_dir = tmp_path / "audit"
     audit_dir.mkdir()
     catalog = ModelCatalog(write_catalog(tmp_path, ["openrouter/auto"]))
-    settings = load_settings(lambda _key, default=None: default)
+    settings = load_settings(lambda key, default=None: {"provider": "openrouter"}.get(key, default))
     router = Router(
         lambda: settings,
         get_state=lambda: _State(audit_dir),
@@ -178,7 +178,7 @@ def test_replay_does_not_re_check_the_catalog(tmp_path):
 
 
 def test_grid_report_flags_the_entries_the_provider_lacks(tmp_path):
-    settings = load_settings(lambda _key, default=None: default)
+    settings = load_settings(lambda key, default=None: {"provider": "openrouter"}.get(key, default))
     router = Router(
         lambda: settings,
         get_state=lambda: None,
@@ -191,7 +191,7 @@ def test_grid_report_flags_the_entries_the_provider_lacks(tmp_path):
 
 
 def test_grid_report_is_empty_without_evidence(tmp_path):
-    settings = load_settings(lambda _key, default=None: default)
+    settings = load_settings(lambda key, default=None: {"provider": "openrouter"}.get(key, default))
     router = Router(
         lambda: settings,
         get_state=lambda: None,

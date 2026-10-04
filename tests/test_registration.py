@@ -54,7 +54,7 @@ class Args:
 
 def test_register_wires_the_declared_surface(plugin, tmp_path, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    ctx = StubContext(config={}, state=StubState(tmp_path))
+    ctx = StubContext(config={"provider": "openrouter"}, state=StubState(tmp_path))
 
     plugin.register(ctx)
 
@@ -70,7 +70,7 @@ def test_manifest_declares_exactly_what_is_registered(plugin, tmp_path, monkeypa
     yaml = pytest.importorskip("yaml")
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     manifest = yaml.safe_load((ROOT / "plugin.yaml").read_text(encoding="utf-8"))
-    ctx = StubContext(config={}, state=StubState(tmp_path))
+    ctx = StubContext(config={"provider": "openrouter"}, state=StubState(tmp_path))
 
     plugin.register(ctx)
 
@@ -114,14 +114,14 @@ def test_register_does_no_network_io(plugin, tmp_path, monkeypatch):
         raise AssertionError("registration must not open a socket")
 
     monkeypatch.setattr(httpx, "Client", forbidden)
-    ctx = StubContext(config={}, state=StubState(tmp_path))
+    ctx = StubContext(config={"provider": "openrouter"}, state=StubState(tmp_path))
 
     plugin.register(ctx)  # must not raise
 
 
 def test_registration_without_an_api_key_still_succeeds(plugin, tmp_path, monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    ctx = StubContext(config={}, state=StubState(tmp_path))
+    ctx = StubContext(config={"provider": "openrouter"}, state=StubState(tmp_path))
 
     plugin.register(ctx)
 
@@ -141,7 +141,7 @@ def test_config_schema_matches_the_settings_the_plugin_reads(tmp_path):
 
 def test_status_tool_reports_the_grid_and_the_audit(plugin, tmp_path, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    ctx = StubContext(config={}, state=StubState(tmp_path))
+    ctx = StubContext(config={"provider": "openrouter"}, state=StubState(tmp_path))
     plugin.register(ctx)
 
     payload = json.loads(ctx.tools["jev_effort_router_status"]["handler"]({"recent": 3}))
@@ -200,7 +200,7 @@ def test_status_tool_accepts_the_arguments_dict_the_host_passes(plugin, tmp_path
     while the empty-arguments call kept working.
     """
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    ctx = StubContext(config={}, state=StubState(tmp_path))
+    ctx = StubContext(config={"provider": "openrouter"}, state=StubState(tmp_path))
     plugin.register(ctx)
 
     payload = json.loads(_dispatch_like_the_host(ctx.tools["jev_effort_router_status"]["handler"], args))
@@ -218,7 +218,7 @@ def test_status_tool_accepts_the_arguments_dict_the_host_passes(plugin, tmp_path
 )
 def test_route_tool_accepts_the_arguments_dict_the_host_passes(plugin, tmp_path, monkeypatch, args):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    ctx = StubContext(config={}, state=StubState(tmp_path))
+    ctx = StubContext(config={"provider": "openrouter"}, state=StubState(tmp_path))
     plugin.register(ctx)
 
     from client import JevClient
@@ -240,7 +240,7 @@ def test_route_tool_accepts_the_arguments_dict_the_host_passes(plugin, tmp_path,
 
 def test_route_tool_without_a_task_is_a_clean_error(plugin, tmp_path, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    ctx = StubContext(config={}, state=StubState(tmp_path))
+    ctx = StubContext(config={"provider": "openrouter"}, state=StubState(tmp_path))
     plugin.register(ctx)
 
     payload = json.loads(_dispatch_like_the_host(ctx.tools["jev_effort_router_route"]["handler"], {}))
@@ -250,7 +250,7 @@ def test_route_tool_without_a_task_is_a_clean_error(plugin, tmp_path, monkeypatc
 
 def test_slash_command_status_grid_and_usage(plugin, tmp_path, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    ctx = StubContext(config={}, state=StubState(tmp_path))
+    ctx = StubContext(config={"provider": "openrouter"}, state=StubState(tmp_path))
     plugin.register(ctx)
 
     handler = ctx.slash_commands["jev-effort-router"]["handler"]
@@ -280,7 +280,7 @@ def test_cli_status_shows_the_grid_coverage_block(tmp_path, monkeypatch, capsys)
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
         spec.loader.exec_module(module)
-    ctx = StubContext(config={}, state=StubState(tmp_path))
+    ctx = StubContext(config={"provider": "openrouter"}, state=StubState(tmp_path))
     sys.modules[name].register(ctx)
     router = ctx.middleware["llm_request"].__self__
 
@@ -299,7 +299,10 @@ def test_cli_status_shows_the_grid_coverage_block(tmp_path, monkeypatch, capsys)
         encoding="utf-8",
     )
 
-    text = _status_text(router, load_settings(lambda _key, default=None: default))
+    text = _status_text(
+        router,
+        load_settings(lambda key, default=None: {"provider": "openrouter"}.get(key, default)),
+    )
 
     assert "Grid coverage (last 2 routed turns):" in text
     assert "openrouter/auto x1" in text
@@ -310,7 +313,7 @@ def test_cli_status_shows_the_grid_coverage_block(tmp_path, monkeypatch, capsys)
 
 def test_cli_command_status_and_missing_task(plugin, tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    ctx = StubContext(config={}, state=StubState(tmp_path))
+    ctx = StubContext(config={"provider": "openrouter"}, state=StubState(tmp_path))
     plugin.register(ctx)
 
     handler = ctx.cli_commands["jev-effort-router"]["handler_fn"]
@@ -323,7 +326,7 @@ def test_cli_command_status_and_missing_task(plugin, tmp_path, monkeypatch, caps
 
 def test_cli_reset_drops_the_memo(plugin, tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    ctx = StubContext(config={}, state=StubState(tmp_path))
+    ctx = StubContext(config={"provider": "openrouter"}, state=StubState(tmp_path))
     plugin.register(ctx)
 
     assert ctx.cli_commands["jev-effort-router"]["handler_fn"](Args(jev_effort_router_command="reset")) == 0
@@ -332,7 +335,7 @@ def test_cli_reset_drops_the_memo(plugin, tmp_path, monkeypatch, capsys):
 
 def test_cli_tail_prints_json_records(plugin, tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    ctx = StubContext(config={}, state=StubState(tmp_path))
+    ctx = StubContext(config={"provider": "openrouter"}, state=StubState(tmp_path))
     plugin.register(ctx)
 
     handler = ctx.cli_commands["jev-effort-router"]["handler_fn"]

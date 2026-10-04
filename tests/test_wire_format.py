@@ -22,7 +22,8 @@ from router import Router
 
 
 def build(tmp_path, transport, config=None):
-    settings = load_settings(lambda key, default=None: (config or {}).get(key, default))
+    effective = {"provider": "openrouter", **(config or {})}
+    settings = load_settings(lambda key, default=None: effective.get(key, default))
     router = Router(
         lambda: settings,
         get_state=lambda: StubState(tmp_path),

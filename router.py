@@ -29,21 +29,19 @@ from .client import (
     Decision,
     JevClient,
 )
-from .config import ROUTED_API_MODES, ROUTED_PROVIDER, ROUTED_PROVIDER_ALIASES, Settings
+from .config import Settings, api_key
 from .memo import Memo, TurnMemo
+from .providers import EXTRA_BODY_REASONING
 from .state import last_user_message
 
 logger = logging.getLogger(__name__)
 
 #: Where the routing decision puts the effort on the wire, per provider.
 #:
-#: On Ollama:Cloud the provider profile consumes ``reasoning_config`` and emits only a top-level
-#: ``reasoning_effort`` — so that is the key the grid entry must carry.
-#: On OpenRouter the transport emits a nested ``reasoning: {effort: ...}`` inside ``extra_body``;
-#: writing a second, top-level ``reasoning_effort`` alongside it makes OpenRouter reject the whole
-#: call with ``HTTP 400: "reasoning_effort" and "reasoning.effort" are both provided with
-#: conflicting values``. So on OpenRouter the effort is merged into the nested ``reasoning`` object
-#: (and any stale top-level key is dropped) instead of being added next to it.
+#: The wire shape is a property of the *selected provider profile* (see ``providers.py``), not a
+#: global. Ollama:Cloud consumes a top-level ``reasoning_effort``; OpenRouter expects a nested
+#: ``reasoning: {effort: ...}`` inside ``extra_body``. Getting this wrong is a live dead turn —
+#: see ``Router._apply`` for the two failures this avoids.
 EFFORT_WIRE_KEY = "reasoning_effort"
 REASONING_WIRE_KEY = "reasoning"
 
@@ -131,11 +129,12 @@ class Router:
             return None
 
         # -- skip gates: anything the router does not own goes out untouched ---------
+        profile = settings.profile
         provider_key = (provider or "").strip().lower()
-        if provider_key not in ("", ROUTED_PROVIDER) and provider_key not in ROUTED_PROVIDER_ALIASES:
+        if provider_key and provider_key not in profile.names:
             self._record_skip(settings, REASON_SKIPPED_PROVIDER, where)
             return None
-        if api_mode and api_mode not in ROUTED_API_MODES:
+        if api_mode and api_mode not in profile.api_modes:
             self._record_skip(settings, REASON_SKIPPED_API_MODE, where, extra={"api_mode": api_mode})
             return None
         if settings.entry_for(model) is None:
@@ -188,7 +187,7 @@ class Router:
                 else:
                     self._memo.put_session(session_id, memo)
 
-            routed = self._apply(original_request, decision)
+            routed = self._apply(original_request, decision, settings)
             self._record_route(settings, decision, where, api_call_count=api_call_count, replayed=replayed)
             return {"request": routed, "source": "jev-effort-router", "reason": decision.model}
         except Exception as exc:  # noqa: BLE001 - a router must never break a turn
@@ -262,7 +261,9 @@ class Router:
             return None
         return decision
 
-    def _apply(self, original_request: Dict[str, Any], decision: Decision) -> Dict[str, Any]:
+    def _apply(
+        self, original_request: Dict[str, Any], decision: Decision, settings: Settings
+    ) -> Dict[str, Any]:
         """Build the rewritten request from the pre-middleware payload.
 
         Working from ``original_request`` keeps this router idempotent when more than one
@@ -294,7 +295,7 @@ class Router:
         """
         routed = dict(original_request)
         routed["model"] = decision.model
-        if ROUTED_PROVIDER == "openrouter":
+        if settings.profile.effort_wire == EXTRA_BODY_REASONING:
             # The transport nests reasoning under extra_body; merge there, never top-level.
             extra_body = routed.get("extra_body")
             extra_body = dict(extra_body) if isinstance(extra_body, dict) else {}

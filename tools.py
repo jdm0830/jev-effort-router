@@ -150,6 +150,7 @@ def _status(router, settings: Settings, recent: int = 5) -> str:
     records = router.tail(settings, limit=max(1, min(int(recent or 5), 50)))
     payload = {
         "enabled": settings.enabled,
+        "provider": settings.provider,
         "api_key_present": bool(api_key()),
         "endpoint": settings.endpoint,
         "jev_model": settings.jev_model,

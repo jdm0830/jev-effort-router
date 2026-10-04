@@ -16,6 +16,11 @@ from client import (
 from stubs import ReadTimeout, StubResponse, StubTransport, decision_payload
 from config import load_settings
 from grid import DEFAULT_GRID
+from providers import OPENROUTER
+
+#: The route this client fork ships for: OpenRouter's two-model grid, whose ids are the only
+#: ones that land on the OpenRouter effort vocabulary.
+OPENROUTER_GRID = OPENROUTER.grid
 
 MESSAGES = [
     {"role": "user", "content": "première question"},
@@ -25,8 +30,16 @@ MESSAGES = [
 
 
 def make(transport, config=None):
-    settings = load_settings(lambda key, default=None: (config or {}).get(key, default))
+    # These tests exercise the OpenRouter route (OPENROUTER_GRID, its ids, its fallback), so the
+    # settings select the OpenRouter profile unless a test overrides it.
+    effective = {"provider": "openrouter", **(config or {})}
+    settings = load_settings(lambda key, default=None: effective.get(key, default))
     return JevClient(settings, transport=transport), settings
+
+
+#: Config that selects the OpenRouter profile, so its fallback_model ('openrouter/auto') is the
+#: default the client degrades to on an unusable answer.
+OPENROUTER_CONFIG = {"provider": "openrouter"}
 
 
 def test_payload_matches_the_documented_shape(monkeypatch):
@@ -34,7 +47,7 @@ def test_payload_matches_the_documented_shape(monkeypatch):
     transport = StubTransport([StubResponse(decision_payload())])
     client, settings = make(transport)
 
-    client.decide(MESSAGES, DEFAULT_GRID, platform="cli", provider="openrouter")
+    client.decide(MESSAGES, OPENROUTER_GRID, platform="cli", provider="openrouter")
 
     payload = transport.last_payload
     assert payload["model"] == settings.jev_model == "typesafe/jev-1.13"
@@ -67,7 +80,7 @@ def test_payload_is_stated_in_one_language(monkeypatch):
     transport = StubTransport([StubResponse(decision_payload())])
     client, _ = make(transport)
 
-    client.decide(MESSAGES, DEFAULT_GRID, platform="cli", provider="openrouter")
+    client.decide(MESSAGES, OPENROUTER_GRID, platform="cli", provider="openrouter")
 
     french = set("àâäçéèêëîïôöùûüœ")
     questions = transport.last_payload["questions"]
@@ -86,7 +99,7 @@ def test_context_window_is_bounded(monkeypatch):
         {"role": "user", "content": f"tour {index} " + "x" * 5000} for index in range(6)
     ]
 
-    client.decide(long_messages, DEFAULT_GRID)
+    client.decide(long_messages, OPENROUTER_GRID)
 
     state = transport.last_payload["state"]
     assert "tour 0" not in state["recent_context"]
@@ -100,7 +113,7 @@ def test_decision_interpretation(monkeypatch):
     transport = StubTransport([StubResponse(decision_payload("2", 0.91, "high", 0.66))])
     client, _ = make(transport)
 
-    decision, reason = client.decide(MESSAGES, DEFAULT_GRID)
+    decision, reason = client.decide(MESSAGES, OPENROUTER_GRID)
 
     assert reason is None
     assert decision.model == "typesafe/jev-router"
@@ -121,11 +134,11 @@ def test_kimi_effort_override_is_applied(monkeypatch):
     transport = StubTransport([StubResponse(decision_payload("2", 0.9, "medium", 0.9))])
     client, _ = make(transport)
 
-    decision, _ = client.decide(MESSAGES, DEFAULT_GRID)
+    decision, _ = client.decide(MESSAGES, OPENROUTER_GRID)
 
     assert decision.effort_requested == "medium"
-    # The routed grid model is unknown to the family table, so it lands on the OpenRouter
-    # vocabulary (accepted low/medium/high), which passes `medium` through verbatim.
+    # The routed grid model is unknown to the family table, so it lands on the default
+    # Ollama:Cloud vocabulary (accepted low/medium/high/max), which passes `medium` through.
     assert decision.effort == "medium"
 
 
@@ -134,7 +147,7 @@ def test_missing_api_key_short_circuits(monkeypatch):
     transport = StubTransport([])
     client, _ = make(transport)
 
-    decision, reason = client.decide(MESSAGES, DEFAULT_GRID)
+    decision, reason = client.decide(MESSAGES, OPENROUTER_GRID)
 
     assert decision is None
     assert reason == REASON_NO_API_KEY
@@ -149,7 +162,7 @@ def test_timeout(monkeypatch):
 
     client, _ = make(StubTransport(handler=handler))
 
-    decision, reason = client.decide(MESSAGES, DEFAULT_GRID)
+    decision, reason = client.decide(MESSAGES, OPENROUTER_GRID)
     assert decision is None
     assert reason == REASON_TIMEOUT
 
@@ -158,7 +171,7 @@ def test_upstream_error(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     client, _ = make(StubTransport([StubResponse(status_code=500, text="boom")]))
 
-    decision, reason = client.decide(MESSAGES, DEFAULT_GRID)
+    decision, reason = client.decide(MESSAGES, OPENROUTER_GRID)
     assert decision is None
     assert reason == REASON_UPSTREAM_ERROR
 
@@ -167,7 +180,7 @@ def test_non_json_body(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     client, _ = make(StubTransport([StubResponse(payload=None, status_code=200, text="<html>")]))
 
-    decision, reason = client.decide(MESSAGES, DEFAULT_GRID)
+    decision, reason = client.decide(MESSAGES, OPENROUTER_GRID)
     assert decision is None
     assert reason == REASON_MALFORMED
 
@@ -176,16 +189,16 @@ def test_missing_answers(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     client, _ = make(StubTransport([StubResponse({"answers": {}})]))
 
-    decision, reason = client.decide(MESSAGES, DEFAULT_GRID)
+    decision, reason = client.decide(MESSAGES, OPENROUTER_GRID)
     assert decision is None
     assert reason == REASON_MALFORMED
 
 
 def test_unknown_model_choice_degrades_to_the_fallback(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    client, _ = make(StubTransport([StubResponse(decision_payload("99", 0.99))]))
+    client, _ = make(StubTransport([StubResponse(decision_payload("99", 0.99))]), config=OPENROUTER_CONFIG)
 
-    decision, reason = client.decide(MESSAGES, DEFAULT_GRID)
+    decision, reason = client.decide(MESSAGES, OPENROUTER_GRID)
 
     assert reason is None
     assert decision.model == "openrouter/auto"
@@ -194,9 +207,12 @@ def test_unknown_model_choice_degrades_to_the_fallback(monkeypatch):
 
 def test_low_confidence_degrades(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    client, _ = make(StubTransport([StubResponse(decision_payload("2", 0.2, "high", 0.2))]))
+    client, _ = make(
+        StubTransport([StubResponse(decision_payload("2", 0.2, "high", 0.2))]),
+        config=OPENROUTER_CONFIG,
+    )
 
-    decision, _ = client.decide(MESSAGES, DEFAULT_GRID)
+    decision, _ = client.decide(MESSAGES, OPENROUTER_GRID)
 
     assert decision.model == "openrouter/auto"
     assert decision.effort == "medium"
@@ -207,12 +223,12 @@ def test_a_confident_model_with_an_unconfident_effort_only_degrades_the_effort(m
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     client, _ = make(StubTransport([StubResponse(decision_payload("2", 0.95, "high", 0.10))]))
 
-    decision, _ = client.decide(MESSAGES, DEFAULT_GRID)
+    decision, _ = client.decide(MESSAGES, OPENROUTER_GRID)
 
     assert decision.model == "typesafe/jev-router"
     # Degraded to the configured default ("medium") and translated for the struck model's
-    # family: the routed OpenRouter ids are unknown to the family table, so the OpenRouter
-    # vocabulary applies and `medium` is accepted as-is.
+    # family: the routed OpenRouter ids are unknown to the family table, so the default
+    # Ollama:Cloud vocabulary applies and `medium` is accepted as-is.
     assert decision.effort_requested == "medium"
     assert decision.effort == "medium"
     assert decision.fallback_reasons == (REASON_LOW_CONFIDENCE,)
@@ -223,10 +239,11 @@ def test_non_choice_answer_types_are_treated_as_malformed(monkeypatch):
     client, _ = make(
         StubTransport(
             [StubResponse(decision_payload("1", 0.9, "medium", 0.9, model_type="noul", effort_type="noul"))]
-        )
+        ),
+        config=OPENROUTER_CONFIG,
     )
 
-    decision, _ = client.decide(MESSAGES, DEFAULT_GRID)
+    decision, _ = client.decide(MESSAGES, OPENROUTER_GRID)
 
     # `choice` is empty on a wrongly-typed answer, so the model is off-grid and the turn
     # falls back rather than reading a probability as a model name.
@@ -239,6 +256,6 @@ def test_custom_endpoint_is_honoured(monkeypatch):
     transport = StubTransport([StubResponse(decision_payload())])
     client, _ = make(transport, config={"endpoint": "https://example.invalid/decisions"})
 
-    client.decide(MESSAGES, DEFAULT_GRID)
+    client.decide(MESSAGES, OPENROUTER_GRID)
 
     assert transport.calls[0]["url"] == "https://example.invalid/decisions"

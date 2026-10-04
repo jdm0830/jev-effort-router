@@ -4,25 +4,24 @@ Every tunable comes from one place so a callback, a tool handler, a slash comman
 CLI all read the same values. ``ctx.get_config`` already resolves
 ``plugins.entries.jev-effort-router.settings.<key>`` over the manifest default, so this module
 only adds coercion, validation and the "value is missing or nonsense" backstops.
+
+The routed provider is a *setting* (``provider``), not a constant: ``providers.py`` holds one
+profile per provider (Ollama:Cloud, the default, and OpenRouter) and this module selects it.
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Optional, Sequence, Tuple
 
-from .grid import DEFAULT_GRID, Entry, parse_grid
-
-#: Provider profile this router is benchmarked for. Anything else is skipped untouched.
-ROUTED_PROVIDER = "openrouter"
-
-#: Provider profile name aliases that also count as routed.
-ROUTED_PROVIDER_ALIASES = ("openrouter", "open_router")
-
-#: API modes this router understands. The OpenRouter profile is chat_completions;
-#: a Responses or Anthropic-Messages route builds its payload elsewhere and is left alone.
-ROUTED_API_MODES = ("chat_completions",)
+from .grid import Entry, parse_grid
+from .providers import (
+    DEFAULT_PROVIDER,
+    ProviderProfile,
+    profile_names,
+    resolve_profile,
+)
 
 EFFORT_LEVELS: Tuple[str, ...] = ("low", "medium", "high")
 
@@ -30,7 +29,6 @@ DEFAULT_JEV_MODEL = "typesafe/jev-1.13"
 DEFAULT_ENDPOINT = "https://openrouter.ai/api/alpha/decisions"
 DEFAULT_TIMEOUT_S = 2.0
 DEFAULT_CONFIDENCE_THRESHOLD = 0.5
-DEFAULT_MODEL = "openrouter/auto"
 DEFAULT_EFFORT = "medium"
 DEFAULT_CONTEXT_TURNS = 4
 
@@ -88,18 +86,24 @@ class Settings:
     """Immutable snapshot of the plugin's effective settings."""
 
     enabled: bool = True
+    provider: str = DEFAULT_PROVIDER
     jev_model: str = DEFAULT_JEV_MODEL
     endpoint: str = DEFAULT_ENDPOINT
     confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD
     timeout_s: float = DEFAULT_TIMEOUT_S
-    default_model: str = DEFAULT_MODEL
+    default_model: str = ""
     default_effort: str = DEFAULT_EFFORT
     context_turns: int = DEFAULT_CONTEXT_TURNS
     route_per_turn: bool = True
     audit_enabled: bool = True
     log_skips: bool = True
     include_user_message_in_audit: bool = False
-    grid: Tuple[Entry, ...] = field(default_factory=lambda: tuple(DEFAULT_GRID))
+    grid: Tuple[Entry, ...] = ()
+
+    @property
+    def profile(self) -> ProviderProfile:
+        """The selected provider profile (never ``None`` — selection always resolves)."""
+        return resolve_profile(self.provider)
 
     @property
     def grid_ids(self) -> Tuple[str, ...]:
@@ -117,11 +121,21 @@ def load_settings(get_config: Optional[Callable[..., Any]] = None) -> Settings:
     """Build a :class:`Settings` from ``ctx.get_config`` (or from no config at all)."""
     read = get_config if callable(get_config) else (lambda _key, default=None: default)
 
+    provider = _as_choice(read("provider", DEFAULT_PROVIDER), profile_names(), DEFAULT_PROVIDER)
+    profile = resolve_profile(provider)
+
+    # The grid override is parsed against the selected profile's default grid, so an unset or
+    # nonsense override lands on *that provider's* models rather than a different provider's.
     raw_grid = read("grid", None)
-    grid = parse_grid(raw_grid) if raw_grid else tuple(DEFAULT_GRID)
+    grid = parse_grid(raw_grid, default=profile.grid) if raw_grid else tuple(profile.grid)
+
+    # The fallback model defaults to the profile's own fallback when unset, so switching
+    # provider does not silently leave a foreign model id as the fallback.
+    fallback_default = profile.fallback_model
 
     settings = Settings(
         enabled=_as_bool(read("enabled", True), True),
+        provider=provider,
         jev_model=_as_text(read("jev_model", DEFAULT_JEV_MODEL), DEFAULT_JEV_MODEL),
         endpoint=_as_text(read("endpoint", DEFAULT_ENDPOINT), DEFAULT_ENDPOINT),
         confidence_threshold=_as_float(
@@ -130,7 +144,7 @@ def load_settings(get_config: Optional[Callable[..., Any]] = None) -> Settings:
             minimum=0.0,
         ),
         timeout_s=_as_float(read("timeout_s", DEFAULT_TIMEOUT_S), DEFAULT_TIMEOUT_S, minimum=0.05),
-        default_model=_as_text(read("default_model", DEFAULT_MODEL), DEFAULT_MODEL),
+        default_model=_as_text(read("default_model", fallback_default), fallback_default),
         default_effort=_as_choice(read("default_effort", DEFAULT_EFFORT), EFFORT_LEVELS, DEFAULT_EFFORT),
         context_turns=_as_int(
             read("context_turns", DEFAULT_CONTEXT_TURNS), DEFAULT_CONTEXT_TURNS, minimum=0, maximum=50
@@ -144,12 +158,13 @@ def load_settings(get_config: Optional[Callable[..., Any]] = None) -> Settings:
     return settings
 
 
-def api_key() -> str:
-    """The OpenRouter key, from the environment only.
+def api_key(profile: Optional[ProviderProfile] = None) -> str:
+    """The decision-endpoint credential, from the environment only.
 
     Never read from ``config.yaml`` and never returned anywhere it could be logged.
     """
-    return (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    env = (profile.api_key_env if profile else "OPENROUTER_API_KEY")
+    return (os.environ.get(env) or "").strip()
 
 
 def redact(value: Any, limit: int = 200) -> str:

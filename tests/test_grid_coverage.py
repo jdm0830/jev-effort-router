@@ -30,7 +30,7 @@ def _load_plugin():
 def _context(tmp_path, records):
     from stubs import StubContext, StubState
 
-    ctx = StubContext(config={}, state=StubState(tmp_path))
+    ctx = StubContext(config={"provider": "openrouter"}, state=StubState(tmp_path))
     _load_plugin().register(ctx)
     router = ctx.middleware["llm_request"].__self__
     path = tmp_path / "routes.jsonl"

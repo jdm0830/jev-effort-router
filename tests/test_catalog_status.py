@@ -32,7 +32,8 @@ def _load_plugin():
 def _context(tmp_path, cache_path):
     from stubs import StubContext, StubState
 
-    ctx = StubContext(config={}, state=StubState(tmp_path))
+    # OpenRouter profile: these tests pin the two-model grid and its catalog warning.
+    ctx = StubContext(config={"provider": "openrouter"}, state=StubState(tmp_path))
     _load_plugin().register(ctx)
     router = ctx.middleware["llm_request"].__self__
     router._catalog = ModelCatalog(cache_path)
@@ -57,9 +58,9 @@ def test_status_flags_grid_entries_the_provider_lacks(tmp_path):
 
 
 def test_status_is_silent_when_the_grid_is_healthy(tmp_path):
-    from grid import DEFAULT_GRID
+    from providers import OPENROUTER
 
-    cache = _write(tmp_path, [entry.model_id for entry in DEFAULT_GRID])
+    cache = _write(tmp_path, [entry.model_id for entry in OPENROUTER.grid])
     ctx = _context(tmp_path, cache)
 
     payload = json.loads(ctx.tools["jev_effort_router_status"]["handler"]({}))

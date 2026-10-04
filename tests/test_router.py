@@ -16,8 +16,14 @@ from router import Router
 
 
 def build(tmp_path, transport, config=None, state=None, catalog=None):
-    """A real router wired the way ``register(ctx)`` wires it."""
-    settings = load_settings(lambda key, default=None: (config or {}).get(key, default))
+    """A real router wired the way ``register(ctx)`` wires it.
+
+    The default profile here is OpenRouter because this module's ``route()`` helper sends an
+    OpenRouter-shaped request (``provider="openrouter"``, effort nested in ``extra_body``). Tests
+    that exercise the default (Ollama:Cloud) profile pass ``config={"provider": "ollama-cloud"}``.
+    """
+    effective = {"provider": "openrouter", **(config or {})}
+    settings = load_settings(lambda key, default=None: effective.get(key, default))
     audit = StubState(tmp_path)
     router = Router(
         lambda: settings,

@@ -76,21 +76,23 @@ def parse_entry(raw: Any) -> Optional[Entry]:
     return Entry(model_id, description.strip() if separator else "")
 
 
-def parse_grid(raw: Any) -> Tuple[Entry, ...]:
-    """Resolve the effective grid, falling back to :data:`DEFAULT_GRID` on nonsense input.
+def parse_grid(raw: Any, default: Sequence[Entry] = DEFAULT_GRID) -> Tuple[Entry, ...]:
+    """Resolve the effective grid, falling back to ``default`` on nonsense input.
 
     A partial or unparseable override is not a reason to route blindly: entries that do not
-    parse are dropped, and an override that yields nothing at all falls back to the default.
+    parse are dropped, and an override that yields nothing at all falls back to ``default``
+    (the selected provider's built-in grid).
     """
+    fallback = tuple(default) if default else DEFAULT_GRID
     if raw is None:
-        return DEFAULT_GRID
+        return fallback
     items: Iterable[Any]
     if isinstance(raw, str):
         items = [line for line in raw.splitlines() if line.strip()]
     elif isinstance(raw, Sequence):
         items = raw
     else:
-        return DEFAULT_GRID
+        return fallback
 
     parsed: List[Entry] = []
     seen = set()
@@ -100,7 +102,7 @@ def parse_grid(raw: Any) -> Tuple[Entry, ...]:
             continue
         seen.add(entry.model_id)
         parsed.append(entry)
-    return tuple(parsed) if parsed else DEFAULT_GRID
+    return tuple(parsed) if parsed else fallback
 
 
 def criteria(grid: Sequence[Entry]) -> dict:
