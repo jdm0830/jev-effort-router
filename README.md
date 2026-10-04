@@ -14,14 +14,14 @@ Every other routing entry in the catalog picks a **model** and stops there. The 
 reasoning effort make you move it **by hand** from the status bar. Nothing else decides both
 automatically, per turn.
 
-**Scope: this plugin is for Hermes running on Ollama:Cloud.** Its whole routing grid is six Ollama:Cloud
-models, the per-family effort table is written for Ollama:Cloud's reasoning-effort vocabulary, and the
-middleware routes **only** the `ollama-cloud` provider — every other provider passes through untouched, so
-installing it on another provider changes nothing. You need Hermes on `provider: ollama-cloud`, with that
-provider's catalog reachable, for this plugin to have any effect.
+**Scope: this plugin is for Hermes running on OpenRouter.** Its whole routing grid is two OpenRouter
+models, the effort translation lands on OpenRouter's reasoning vocabulary, and the middleware routes
+**only** the `openrouter` provider — every other provider passes through untouched, so installing it on
+another provider changes nothing. You need Hermes on `provider: openrouter`, with that provider's catalog
+reachable, for this plugin to have any effect.
 
 Hermes normally runs one model at one reasoning-effort for a whole session. `jev-effort-router` asks Jev —
-on every user turn, in ~270 ms and at $0.042/M input tokens — which of six benchmarked Ollama:cloud models
+on every user turn, in ~270 ms and at $0.042/M input tokens — which of two benchmarked OpenRouter models
 and which effort level fit the task, then rewrites the outgoing provider request accordingly.
 
 Jev writes nothing. The selected model still does all the reasoning and all the generation; Jev only steers.
@@ -35,7 +35,7 @@ llm_request middleware  ──►  ask Jev (choice: model_route, choice: reasoni
    │                              ▼
    │                       confidence guard (default 0.5)
    ▼                              │
-provider request rewritten: model + reasoning_effort
+provider request rewritten: model + extra_body.reasoning.effort
    │
    ▼
 main model reasons and answers
@@ -43,10 +43,18 @@ main model reasons and answers
 
 ## Install
 
+This is a fork, and it is installed from a local checkout rather than from a published repository.
+The installer **git-clones** the source, so the directory must be a git repository — run `git init`
+(and commit) first if it is not one already:
+
 ```bash
-hermes plugins install AlphaPerseii3000/jev-effort-router
+git init && git add -A && git commit -m "local OpenRouter fork"
+hermes plugins install file:///abs/path/to/hermes-jev-openrouter
 hermes plugins enable jev-effort-router
 ```
+
+Upstream's repository (`AlphaPerseii3000/jev-effort-router`) is the original Ollama:Cloud plugin, not
+this fork — installing that URL gets the Ollama:Cloud grid, so point `file://` at this directory.
 
 Hermes scans a community plugin on install and **blocks this one by default** — verified on 0.21.4, not
 assumed:
@@ -72,7 +80,7 @@ distinguish a docstring describing a network call from a hostile one, so the ver
 Review the findings above and re-run with `--force` to accept them:
 
 ```bash
-hermes plugins install AlphaPerseii3000/jev-effort-router --force
+hermes plugins install file:///abs/path/to/hermes-jev-openrouter --force
 ```
 
 To skip the scan entirely for this repository, set `plugins.scan_on_install` in your Hermes config.
@@ -85,9 +93,9 @@ credential is needed:
 OPENROUTER_API_KEY=sk-or-...
 ```
 
-Restart the session. That is the whole setup: the six-model grid ships as the default.
+Restart the session. That is the whole setup: the two-model grid ships as the default.
 
-Requirements: **Hermes Agent on Ollama:Cloud** (`provider: ollama-cloud` — no other provider is routed),
+Requirements: **Hermes Agent on OpenRouter** (`provider: openrouter` — no other provider is routed),
 with the `llm_request` middleware kind (0.21.4 or newer), Python 3.11+, and prepaid OpenRouter credits.
 
 ## Verify it is working
@@ -118,9 +126,9 @@ router is *not* using:
 ```
 "grid_coverage": {
   "window": 38,
-  "applied": { "deepseek-v4.1-flash": 5, "kimi-k3": 3, "glm-5.3-flash": 1 },
-  "never_chosen": ["glm-5.3", "minimax-m3", "nemotron-3-nano:30b"],
-  "below_threshold": { "kimi-k3": 8, "minimax-m3": 7 }
+  "applied": { "openrouter/auto": 33, "typesafe/jev-router": 5 },
+  "never_chosen": [],
+  "below_threshold": { "typesafe/jev-router": 2 }
 }
 ```
 
@@ -142,7 +150,7 @@ form generated from `plugin.yaml`.
 | `jev_model` | `typesafe/jev-1.13` | Decision model. `typesafe/jev-latest` follows the newest release. |
 | `confidence_threshold` | `0.5` | Below this, the turn keeps the configured model and effort. |
 | `timeout_s` | `2.0` | Budget for the decision call. Any timeout leaves the request untouched. |
-| `default_model` | `deepseek-v4.1-flash` | Model used when the decision is below threshold. |
+| `default_model` | `openrouter/auto` | Model used when the decision is below threshold. |
 | `default_effort` | `medium` | Effort used when the decision is below threshold. |
 | `context_turns` | `4` | Preceding turns sent to Jev as recent context. |
 | `route_per_turn` | `true` | Off routes once per session instead of once per user turn. |
@@ -159,7 +167,7 @@ confidence below the threshold, an unknown provider, or a model outside the grid
 
 Notably, it touches only what it owns:
 
-- **Provider** — only `ollama-cloud` is routed; any other provider passes through untouched.
+- **Provider** — only `openrouter` is routed; any other provider passes through untouched.
 - **API mode** — only `chat_completions`; a Responses or Anthropic-Messages route is left alone.
 - **Model** — a model outside the configured grid is not routed.
 - **Auxiliary calls** — titling, compression, MoA and vision calls are not routed, only the main turn.
@@ -173,7 +181,7 @@ different models without anyone reconfiguring anything.
 
 ## The routing grid
 
-Six Ollama:Cloud models, in this order. The list is deliberately short: every extra option measurably
+Two OpenRouter models, in this order. The list is deliberately short: every extra option measurably
 dilutes a Choice decision.
 
 The **Profile** column is the criterion string sent to Jev, verbatim, in English. It lives in
@@ -183,32 +191,41 @@ override `grid`.
 
 Every profile names a **task family**. A task-free superlative — "excellent value for money",
 "excellent in real use for everyday tasks" — reads as a safe pick on every prompt, and the model
-carrying one absorbs decisions that belong to the others. That is what kept `glm-5.3` and
-`glm-5.3-flash` out of the route; see the changelog for the before/after measurement.
+carrying one absorbs decisions that belong to the others; naming a task family is what keeps a broad
+generalist profile from swallowing decisions that belong to a narrower one.
 
 | # | Model | Profile (as sent to Jev) |
 |---|---|---|
-| 1 | `deepseek-v4.1-flash` | the usual choice for general work: everyday writing, explanation, summarising, ordinary coding and tool use; 1M context; cheap for its size |
-| 2 | `kimi-k3` | strongest at complex code and long agentic tasks: multi-file refactors, deep debugging, large repositories; slow and the most expensive |
-| 3 | `glm-5.3` | strongest at rigorous reasoning: mathematics, logic, science, quantitative and financial analysis, where a wrong answer is costly |
-| 4 | `glm-5.3-flash` | best reasoning-per-cost on large text: drafting, summarising, translating and structured extraction over long documents; fast |
-| 5 | `minimax-m3` | fast tool calling: long sequences of API/CLI actions, repetitive automation, high throughput |
-| 6 | `nemotron-3-nano:30b` | highest throughput and lowest cost: trivial single-step requests only; weak at reasoning and at long context |
+| 1 | `openrouter/auto` | the usual choice for general work: everyday writing, explanation, summarising, ordinary coding and tool use; routed for you by OpenRouter; cheap for its size |
+| 2 | `typesafe/jev-router` | deep and hard work: rigorous reasoning, mathematics, logic, science, quantitative and financial analysis, complex code and long agentic tasks where a wrong answer is costly; slow and the most expensive |
 
 Adding a model is a reviewed change to [`docs/routing-grid.md`](docs/routing-grid.md) with benchmark
-evidence behind it — not a config-only act. See that file for the benchmark sources and pricing.
+evidence behind it — not a config-only act. See that file for the profile rules and the measurement
+discipline.
 
-Model ids are checked against Ollama:Cloud's own catalog before they go on the wire: `status` reports any
+Model ids are checked against OpenRouter's own catalog before they go on the wire: `status` reports any
 grid entry the provider no longer serves under `grid_unavailable`, and a decision naming one is refused
-rather than sent. A provider catalog naming a model the grid does not offer is not added automatically —
-extending the grid stays a reviewed change.
+rather than sent. The catalog is read from the host's cache at
+`<HERMES_HOME>/cache/openrouter_model_metadata.json` — a flat `model_id -> {name, context_length,
+pricing, ...}` mapping in which every id *and* its short alias are keys. A provider catalog naming a
+model the grid does not offer is not added automatically — extending the grid stays a reviewed change.
 
 ### Reasoning effort per model family
 
-Model families do not accept the same effort vocabulary, so the plugin carries a per-family table rather
-than sending a generic parameter. It never escalates a level, never invents one, and omits the field rather
-than risk a 400. The notable mapping: Kimi K3's documented set is `low | high | max`, so a `medium` request
-lands on `high`.
+The plugin carries a per-family table rather than sending a generic parameter: model families do not
+accept the same effort vocabulary, and a level a family rejects would be a 400. It never escalates a
+level, never invents one, and omits the field rather than risk a 400. The router only ever asks for
+`low`, `medium` or `high`; an unknown model id — including both grid entries — falls back to OpenRouter's
+family, whose accepted set is exactly `low | medium | high` (`xhigh`/`max` clamp down to `high`, `minimal`
+to `low`).
+
+### Wire shape
+
+On OpenRouter the effort is written to `extra_body["reasoning"]["effort"]`. It is never a top-level
+`reasoning_effort`: the transport already emits a nested `reasoning.effort`, and sending both makes
+OpenRouter reject the call with `HTTP 400: "reasoning_effort" and "reasoning.effort" are both provided
+with conflicting values`. It is never a top-level `reasoning` key either, which raises
+`Completions.create() got an unexpected keyword argument 'reasoning'`.
 
 ## Audit trail
 
@@ -218,14 +235,14 @@ One JSONL record per routing attempt, under `<HERMES_HOME>/plugin-data/jev-effor
 {
   "ts": "2026-09-22T19:09:21+00:00",
   "event": "route",
-  "model": "kimi-k3",
+  "model": "typesafe/jev-router",
   "effort": "high",
   "effort_requested": "high",
   "model_choice": "2",
   "model_confidence": 0.9,
   "model_probabilities": {"2": 0.9},
   "effort_confidence": 0.8,
-  "alternatives": ["deepseek-v4.1-flash", "glm-5.3", "..."],
+  "alternatives": ["openrouter/auto"],
   "latency_ms": 271,
   "fallback_reasons": [],
   "jev_model": "typesafe/jev-1.13",
@@ -278,7 +295,7 @@ registration opens no socket (`hermes plugins doctor` blocks sockets while `regi
   `agent/turn_api_request.py::build_api_request`. See
   [`docs/integration-surface.md`](docs/integration-surface.md).
 - **Choices are keyed, not text.** Jev returns the criterion *key*, so criteria are built as
-  `{"1": "deepseek-v4.1-flash: …", …}` and mapped back by key. Profile text can be rewritten without
+  `{"1": "openrouter/auto: …", …}` and mapped back by key. Profile text can be rewritten without
   silently changing which model is selected. See [`docs/jev-decisions-api.md`](docs/jev-decisions-api.md).
 - **The key question is asked first.** Both questions go in one request; the endpoint evaluates them
   independently and in parallel, so any coupling between them is resolved in code, not on the wire.

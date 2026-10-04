@@ -22,15 +22,14 @@ default so a silent model swap cannot change routing behaviour under the operato
 ```json
 {
   "model": "typesafe/jev-1.13",
-  "state": { "user_message": "...", "recent_context": "...", "surface": "cli", "provider": "ollama-cloud" },
+  "state": { "user_message": "...", "recent_context": "...", "surface": "cli", "provider": "openrouter" },
   "questions": {
     "model_route": {
       "type": "choice",
       "instructions": "Which model is best suited to handle this task?",
       "criteria": {
-        "1": "deepseek-v4.1-flash: the usual choice for general work: everyday writing…",
-        "2": "kimi-k3: strongest at complex code and long agentic tasks…",
-        "...": "..."
+        "1": "openrouter/auto: the usual choice for general work: everyday writing…",
+        "2": "typesafe/jev-router: deep and hard work: rigorous reasoning…"
       }
     },
     "reasoning_effort": {

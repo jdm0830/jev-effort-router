@@ -39,7 +39,7 @@ Middleware chain semantics (`hermes_cli/middleware.py`):
 
 ## What the payload contains
 
-`api_kwargs` for the `ollama-cloud` (`chat_completions`) route carries at least:
+`api_kwargs` for the `openrouter` (`chat_completions`) route carries at least:
 
 | Key | Note for the router |
 |---|---|
@@ -47,16 +47,17 @@ Middleware chain semantics (`hermes_cli/middleware.py`):
 | `messages`, `tools` | the conversation; do not touch (prompt-cache stability) |
 | `max_tokens`, `timeout` | leave alone |
 | `reasoning_config` | Hermes' internal `{enabled, effort}` dict — the *entry* clamp already ran |
-| `reasoning_effort` | present only when the provider profile emitted it (Ollama:cloud: only for models resolved as reasoning-capable) |
-| `extra_body` | leave alone; Ollama:cloud ignores `extra_body.thinking` |
+| `reasoning_effort` | not the wire field on OpenRouter; a stale top-level key is dropped, because it conflicts with the nested `reasoning.effort` |
+| `extra_body` | the router merges the chosen effort into `extra_body["reasoning"]["effort"]` |
 
-The profile `plugins/model-providers/ollama-cloud/__init__.py` is the reference for how the effort reaches
-the wire: it reads `reasoning_config["effort"]`, maps `xhigh → max`, clamps onto
-`OLLAMA_CLOUD_EFFORTS = ("none","low","medium","high","max")`, and returns it as a top-level
-`reasoning_effort` — or omits the field entirely when the model has no thinking capability. So a router
-that writes both `reasoning_config: {"enabled": true, "effort": <level>}` and a top-level
-`reasoning_effort: <level>` is coherent with the host: the profile re-derives the top-level field from the
-config anyway, and writing both guarantees the field survives a profile change.
+On OpenRouter the effort does **not** reach the wire as a top-level `reasoning_effort`. The transport
+emits a nested `reasoning: {effort: ...}` inside `extra_body`, and that nested shape is what the router
+writes: `extra_body["reasoning"]["effort"] = <level>`, with any stale top-level `reasoning_effort`
+removed. Sending both makes OpenRouter reject the call with
+`HTTP 400: "reasoning_effort" and "reasoning.effort" are both provided with conflicting values`; passing
+a top-level `reasoning` argument instead raises `Completions.create() got an unexpected keyword argument
+'reasoning'`. So on this route it is not enough to write `reasoning_config` alone — the field that reaches
+the wire is the nested one.
 
 ## Per-turn vs per-request
 

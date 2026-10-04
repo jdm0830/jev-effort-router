@@ -4,6 +4,42 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased — OpenRouter fork
+
+Fork of [AlphaPerseii3000/jev-effort-router](https://github.com/AlphaPerseii3000/jev-effort-router)
+(MIT) that moves the plugin from Ollama:Cloud to OpenRouter.
+
+### Changed
+
+- **Routed provider switched to OpenRouter.** `ROUTED_PROVIDER` is now `openrouter` (aliases
+  `openrouter`, `open_router`), the decision endpoint defaults to
+  `https://openrouter.ai/api/alpha/decisions`, and the credential is read from `OPENROUTER_API_KEY`.
+  Only the `openrouter` provider is routed; every other provider passes through untouched.
+- **Two-model routing grid.** `DEFAULT_GRID` is now exactly two models, in this order:
+  `openrouter/auto` (“the usual choice for general work: everyday writing, explanation,
+  summarising, ordinary coding and tool use; routed for you by OpenRouter; cheap for its size”) and
+  `typesafe/jev-router` (“deep and hard work: rigorous reasoning, mathematics, logic, science,
+  quantitative and financial analysis, complex code and long agentic tasks where a wrong answer is
+  costly; slow and the most expensive”). The default/fallback model is `openrouter/auto`.
+- **Reasoning effort unknown models fall back to the OpenRouter family.** `openrouter/auto` and
+  `typesafe/jev-router` are unknown ids, so they take the OpenRouter vocabulary: accepted
+  `low | medium | high`, with `xhigh`/`max` clamped to `high` and `minimal` to `low`. The router only
+  ever asks for low/medium/high and the clamp never escalates.
+
+### Fixed
+
+- **Top-level `reasoning_effort` removed on the OpenRouter route.** Writing a top-level
+  `reasoning_effort` alongside the transport's nested `reasoning.effort` made OpenRouter reject the
+  call with `HTTP 400` (“‘reasoning_effort’ and ‘reasoning.effort’ are both provided with
+  conflicting values”). The effort is now written only to `extra_body["reasoning"]["effort"]`, and any
+  stale top-level key is dropped.
+- **Nested reasoning no longer passed as a top-level key.** Passing a top-level `reasoning` argument
+  raised `Completions.create() got an unexpected keyword argument 'reasoning'`; it is now merged into
+  `extra_body["reasoning"]`.
+- **Provider catalog pointed at Hermes' real cache path and shape.** The catalog is read from
+  `<HERMES_HOME>/cache/openrouter_model_metadata.json`, a flat `model_id -> {name, context_length,
+  pricing, ...}` mapping in which every id *and* its short alias are keys.
+
 ## [0.2.2] - 2026-09-23
 
 ### Fixed

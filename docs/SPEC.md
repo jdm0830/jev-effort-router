@@ -16,8 +16,8 @@ companions:
 **An opportunity to capture.** TypeSafe's Jev (`typesafe/jev-1.13`, first of the "System One" models) makes a
 typed, calibrated decision — choice, score, or yes/no probability — in ~270 ms p50 and $0.042/M input
 tokens with free output. That is fast and cheap enough to run on *every* user turn, which turns model
-selection from a static config value into a per-message routing decision. A Hermes operator running six
-benchmarked Ollama:cloud models (routing-grid.md) currently has to guess one model and one reasoning-effort
+selection from a static config value into a per-message routing decision. A Hermes operator running two
+benchmarked OpenRouter models (routing-grid.md) currently has to guess one model and one reasoning-effort
 level for the whole session, and re-guess by hand when the conversation changes shape from a one-line
 question to a multi-file code change. Jev closes that gap at negligible cost, and keeps every gram of
 reasoning and generation in the main model — it only steers.
@@ -30,11 +30,11 @@ reasoning and generation in the main model — it only steers.
     enabled with its declared middleware/hook/tool surface; `hermes plugins doctor <repo>` exits 0.
 
 - **CAP-2** — On the first LLM request of each user turn, the effective provider kwargs are rewritten so
-  that `model` is Jev's chosen model and `reasoning_effort` is Jev's chosen level, mapped onto that
-  model's real wire vocabulary.
-  - **success:** with a stub Jev endpoint returning `deepseek-v4.1-flash` + `high`, the captured provider
-    kwargs for request 1 show exactly those values; with a stub returning `kimi-k3` + `low`, the captured
-    kwargs show `kimi-k3` and the effort value Kimi's wire accepts.
+  that `model` is Jev's chosen model and the chosen effort is written to OpenRouter's nested
+  `extra_body["reasoning"]["effort"]`, mapped onto that model's real wire vocabulary.
+  - **success:** with a stub Jev endpoint returning `openrouter/auto` + `high`, the captured provider
+    kwargs for request 1 show exactly those values; with a stub returning `typesafe/jev-router` + `low`,
+    the captured kwargs show `typesafe/jev-router` and the effort value that route accepts.
 
 - **CAP-3** — The routing decision covers the whole turn: follow-up requests inside the same tool loop
   keep the model and effort chosen at the first request.
@@ -63,9 +63,9 @@ reasoning and generation in the main model — it only steers.
 
 - **CAP-7** — Routing degrades to "do nothing" on every surface or configuration it does not own, instead
   of perturbing it.
-  - **success:** for each of — non-`ollama-cloud` provider, a model absent from the option grid, and an
+  - **success:** for each of — non-`openrouter` provider, a model absent from the option grid, and an
     auxiliary/compression/MoA call — the plugin leaves the payload untouched (no `model` and no
-    `reasoning_effort` mutation) and appends a skip entry to the audit file naming the trigger.
+    reasoning mutation) and appends a skip entry to the audit file naming the trigger.
 
 ## Constraints
 
@@ -80,10 +80,13 @@ reasoning and generation in the main model — it only steers.
 - Network failure, HTTP status, or malformed Jev response must never raise into the turn. The middleware
   timeout is host-owned (`plugins.hook_callback_timeout`, default 30 s and fail-open), so the plugin
   enforces its own much shorter budget (default 2.0 s) and returns `None` on any error.
-- The chosen model must exist in the Ollama:cloud catalog of the running profile; a model id outside the
+- The chosen model must exist in the OpenRouter catalog of the running profile; a model id outside the
   configured grid is rejected and treated as low confidence.
 - The option list sent to Jev stays short. A longer Choice list measurably dilutes decision quality, so
-  the grid is the six benchmarked models and grows only on evidence.
+  the grid is the two benchmarked models and grows only on evidence.
+- The chosen effort reaches OpenRouter only through `extra_body["reasoning"]["effort"]`. A top-level
+  `reasoning_effort` conflicts with the transport's nested field (`HTTP 400`), and a top-level `reasoning`
+  argument is not accepted by the chat-completions transport (`Completions.create() unexpected keyword`).
 - One route per user turn: the decision is taken at the first request of the turn and reused for its
   remainder, so the system prompt and prompt cache are not disturbed mid-turn.
 - Effort levels are translated through a per-family mapping table, never sent as a generic parameter:
@@ -95,9 +98,9 @@ reasoning and generation in the main model — it only steers.
 
 ## Non-goals
 
-- **Not provider-agnostic.** Ollama:Cloud is the only provider this plugin serves: the grid is six
-  Ollama:Cloud models, the effort table is written for that profile's vocabulary, and the middleware is
-  gated on `provider: ollama-cloud`. Supporting another provider means a new grid, a new effort table and
+- **Not provider-agnostic.** OpenRouter is the only provider this plugin serves: the grid is two
+  OpenRouter models, the effort table lands on that profile's vocabulary, and the middleware is
+  gated on `provider: openrouter`. Supporting another provider means a new grid, a new effort table and
   a review of the routing logic — a different feature, not a config change.
 - Not an evaluation loop. Scoring the quality of the generated answer after the fact is a separate
   decision type and a separate feature.
@@ -117,8 +120,8 @@ reasoning and generation in the main model — it only steers.
 ## Success signal
 
 A Hermes user with an OpenRouter key installs the plugin, and in a session that moves from a one-line
-question to a code refactor to a long-context analysis, the audit file shows Jev choosing three different
-models/effort levels while the configured model was never touched, no turn failed, and a kill-switch run
+question to a code refactor to a long-context analysis, the audit file shows Jev choosing different
+model/effort combinations while the configured model was never touched, no turn failed, and a kill-switch run
 with the plugin disabled produced byte-identical requests to a healthy routed run whose Jev answers match
 the configured model.
 
@@ -132,21 +135,21 @@ the configured model.
   TypeSafe key is needed.
 - The Jev request/response shapes behave as documented in `jev-decisions-api.md`; the exact wire
   contract was verified against OpenRouter's model page, tutorial, and Decisions API reference.
-- The plugin keys effort translation off the provider profile name `ollama-cloud`; operators using a
-  differently-named profile pointing at `ollama.com` are out of scope for the first release.
-- Ollama:cloud is the only provider the routing grid was benchmarked on, so the plugin is a no-op
+- The plugin keys effort translation off the provider profile name `openrouter`; operators using a
+  differently-named profile pointing at OpenRouter are out of scope for the first release.
+- OpenRouter is the only provider the routing grid was benchmarked on, so the plugin is a no-op
   elsewhere by design rather than by omission.
 
 ## Open Questions
 
-- Should `reasoning_effort` for models the Ollama:cloud wire cannot express be *omitted* (server default)
+- Should the effort for models the OpenRouter route cannot express be *omitted* (server default)
   or clamped to the nearest weaker level? Current contract: clamp low/medium/high onto the family's
   accepted set, and omit rather than send a level the family would reject.
 - Is a per-turn route on *every* message the right default, or should the plugin expose
   `route_once_per_session` alongside it? Current contract ships per-turn only; the toggle is deferred
   until the log shows it is wanted.
-- Should the grid's model ids be validated live against `GET https://ollama.com/v1/models` at startup,
-  or is config-time validation enough? Current contract: config-time against the grid, with a skip entry
-  in the audit file when the live catalog disagrees.
-- Does the operator want the Desktop settings form seeded with the six-model grid, or an empty grid the
+- Should the grid's model ids be validated live against OpenRouter's catalog at startup, or is
+  config-time validation enough? Current contract: read the host's cached OpenRouter catalog
+  (`<HERMES_HOME>/cache/openrouter_model_metadata.json`) and skip with an audit entry when it disagrees.
+- Does the operator want the Desktop settings form seeded with the two-model grid, or an empty grid the
   operator fills in? Current contract: ship the grid as the default so the plugin works out of the box.
